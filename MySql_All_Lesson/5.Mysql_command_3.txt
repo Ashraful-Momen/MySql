@@ -1,0 +1,185 @@
+
+  
+#***CASE (if/else): --------------------------------------
+
+The CASE statement goes through conditions and returns a value when the first condition is met (like an if-then-else statement). So, once a condition is true, it will stop reading and return the result. If no conditions are true, it returns the value in the ELSE clause.
+
+If there is no ELSE part and no conditions are true, it returns NULL.
+
+>>> CASE
+    WHEN condition1 THEN result1
+    WHEN condition2 THEN result2
+    WHEN conditionN THEN resultN
+    ELSE result
+END; 
+
+
+The following SQL goes through conditions and returns a value when the first condition is met:
+>>>SELECT OrderID, Quantity,
+CASE
+    WHEN Quantity > 30 THEN 'The quantity is greater than 30'
+    WHEN Quantity = 30 THEN 'The quantity is 30'
+    ELSE 'The quantity is under 30'
+END AS QuantityText
+FROM OrderDetails; 
+
+The following SQL will order the customers by City. However, if City is NULL, then order by Country:
+>>>SELECT CustomerName, City, Country
+FROM Customers
+ORDER BY
+(CASE
+    WHEN City IS NULL THEN Country
+    ELSE City
+END); 
+
+
+#IFNULL(),COALESCE(): ======================================================================
+
+### **`IFNULL()` and `COALESCE()` in SQL**
+
+Both `IFNULL()` and `COALESCE()` are used in SQL to handle **`NULL`** values by providing a fallback or default value when encountering `NULL`. However, they differ slightly in functionality and usage.
+
+---
+
+### **1. `IFNULL()`**
+- **Definition**: Replaces a `NULL` value with a specified value.
+- **Syntax**: 
+  ```sql
+  IFNULL(expression, replacement_value)
+  ```
+- **Use Case**: When a single expression might return `NULL`, use `IFNULL()` to replace it with a default value.
+
+---
+
+**Example Table: `Employees`**
+
+| EmployeeID | Name      | Bonus  |
+|------------|-----------|--------|
+| 1          | Alice     | 500    |
+| 2          | Bob       | NULL   |
+| 3          | Charlie   | 300    |
+
+---
+
+**SQL Query:**
+```sql
+SELECT 
+    Name, 
+    IFNULL(Bonus, 0) AS BonusAmount
+FROM Employees;
+```
+
+---
+
+**Result:**
+| Name      | BonusAmount |
+|-----------|-------------|
+| Alice     | 500         |
+| Bob       | 0           |
+| Charlie   | 300         |
+
+---
+
+**ASCII Representation:**
+
+```
+Original Table:
++------------+--------+
+| Name       | Bonus  |
++------------+--------+
+| Alice      | 500    |
+| Bob        | NULL   |
+| Charlie    | 300    |
++------------+--------+
+
+Applying IFNULL():
++------------+-------------+
+| Name       | BonusAmount |
++------------+-------------+
+| Alice      | 500         |
+| Bob        | 0           |
+| Charlie    | 300         |
++------------+-------------+
+```
+
+---
+
+### **2. `COALESCE()`**
+- **Definition**: Evaluates multiple expressions and returns the first non-`NULL` value. It’s more flexible than `IFNULL()`.
+- **Syntax**:
+  ```sql
+  COALESCE(expression1, expression2, ..., expressionN)
+  ```
+- **Use Case**: When you want to check multiple columns or values for the first non-`NULL` value.
+
+---
+
+**Example Table: `Sales`**
+
+| SaleID | Product    | Discount | SpecialDiscount |
+|--------|------------|----------|-----------------|
+| 1      | Laptop     | 10       | NULL            |
+| 2      | Phone      | NULL     | 5               |
+| 3      | Tablet     | NULL     | NULL            |
+
+---
+
+**SQL Query:**
+```sql
+SELECT 
+    Product, 
+    COALESCE(Discount, SpecialDiscount, 0) AS FinalDiscount
+FROM Sales;
+```
+
+---
+
+**Result:**
+| Product    | FinalDiscount |
+|------------|---------------|
+| Laptop     | 10            |
+| Phone      | 5             |
+| Tablet     | 0             |
+
+---
+
+**ASCII Representation:**
+
+```
+Original Table:
++---------+----------+-----------------+
+| Product | Discount | SpecialDiscount |
++---------+----------+-----------------+
+| Laptop  | 10       | NULL            |
+| Phone   | NULL     | 5               |
+| Tablet  | NULL     | NULL            |
++---------+----------+-----------------+
+
+Applying COALESCE():
++---------+---------------+
+| Product | FinalDiscount |
++---------+---------------+
+| Laptop  | 10            |
+| Phone   | 5             |
+| Tablet  | 0             |
++---------+---------------+
+```
+
+---
+
+### **Key Differences**
+
+| Feature              | `IFNULL()`                     | `COALESCE()`                        |
+|----------------------|---------------------------------|-------------------------------------|
+| **Usage**            | Handles a single expression.   | Handles multiple expressions.       |
+| **Return Value**     | Returns the replacement value if the first expression is `NULL`. | Returns the first non-`NULL` value from the list. |
+| **Number of Arguments** | Exactly 2 arguments.          | Multiple arguments allowed.         |
+| **Flexibility**      | Less flexible.                 | More flexible for complex checks.   |
+
+---
+
+### **When to Use**
+1. **Use `IFNULL()`**: If you need to handle one expression and replace `NULL` with a default value.
+2. **Use `COALESCE()`**: If you need to check multiple expressions for the first non-`NULL` value.
+
+Let me know if you'd like more examples or deeper insights!
