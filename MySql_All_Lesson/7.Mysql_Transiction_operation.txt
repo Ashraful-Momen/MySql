@@ -1,0 +1,123 @@
+In MySQL, **transactions** are used to execute a set of SQL queries as a single unit of work. Transactions ensure **data integrity** by allowing operations to be either fully completed (committed) or fully undone (rolled back) if something goes wrong.
+
+---
+
+### Key Concepts of Transactions:
+1. **BEGIN (or START)**: Marks the start of a transaction.
+2. **COMMIT**: Saves the changes made during the transaction.
+3. **ROLLBACK**: Reverts changes if there's an error or the operation needs to be undone.
+4. **AUTOCOMMIT**: Determines whether transactions are automatically committed after each statement.
+
+---
+
+### Steps for Using Transactions:
+
+1. **Start the Transaction**:
+   ```sql
+   START TRANSACTION; 
+   ```
+   (or `BEGIN;`)
+
+2. **Execute Your SQL Queries**:
+   Perform your INSERT, UPDATE, or DELETE operations.
+
+3. **Commit or Rollback**:
+   - Use `COMMIT;` to save the changes.
+   - Use `ROLLBACK;` to undo changes if something goes wrong.
+
+---
+
+### Example of a MySQL Transaction:
+
+```sql
+-- Start the transaction
+START TRANSACTION;
+
+-- Insert a new user into the users table
+INSERT INTO users (name, email) VALUES ('John Doe', 'john@example.com');
+
+-- Deduct balance from the accounts table
+UPDATE accounts SET balance = balance - 100 WHERE account_id = 1;
+
+-- Add balance to another account
+UPDATE accounts SET balance = balance + 100 WHERE account_id = 2;
+
+-- Commit the transaction if everything is successful
+COMMIT;
+```
+
+If something fails during the transaction, you can use `ROLLBACK`:
+
+```sql
+ROLLBACK;
+```
+
+---
+
+### AutoCommit Mode:
+
+MySQL's default behavior is to automatically commit changes after each query. To disable autocommit during a session:
+
+```sql
+SET AUTOCOMMIT = 0; -- Disable autocommit
+```
+
+Re-enable it when done:
+
+```sql
+SET AUTOCOMMIT = 1; -- Enable autocommit
+```
+
+---
+
+### Example with Rollback:
+
+```sql
+START TRANSACTION;
+
+INSERT INTO orders (user_id, product_id, quantity) VALUES (1, 101, 2);
+
+-- Simulate an error
+UPDATE inventory SET stock = stock - 2 WHERE product_id = 101;
+
+-- Check if stock went negative (error condition)
+SELECT stock FROM inventory WHERE product_id = 101;
+
+-- If error occurs, rollback
+ROLLBACK;
+```
+
+---
+
+### Savepoints in Transactions:
+
+You can use **savepoints** to roll back a specific portion of the transaction without canceling the entire transaction.
+
+```sql
+START TRANSACTION;
+
+-- Insert operation
+INSERT INTO orders (user_id, product_id, quantity) VALUES (1, 101, 2);
+
+-- Create a savepoint
+SAVEPOINT savepoint1;
+
+-- Update inventory
+UPDATE inventory SET stock = stock - 2 WHERE product_id = 101;
+
+-- Rollback to the savepoint
+ROLLBACK TO savepoint1;
+
+-- Commit remaining operations
+COMMIT;
+```
+
+---
+
+### Best Practices:
+- Use transactions for **related operations** where **data consistency** is crucial (e.g., financial transfers, inventory updates).
+- Always check for errors in queries within the transaction block.
+- Use **ROLLBACK** to avoid partially completed operations if something goes wrong.
+
+---
+
