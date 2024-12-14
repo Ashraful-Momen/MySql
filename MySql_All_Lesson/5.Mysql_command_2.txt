@@ -1,0 +1,229 @@
+#GroupBY============================================================================================
+The GROUP BY statement groups rows that have the same values into summary rows, like "find the number of customers in each country".
+
+The GROUP BY statement is often used with aggregate functions (COUNT(), MAX(), MIN(), SUM(), AVG()) to group the result-set by one or more columns.
+
+>>>SELECT column_name(s)
+FROM table_name
+WHERE condition
+GROUP BY column_name(s)
+ORDER BY column_name(s); 
+
+The following SQL statement lists the number of customers in each country:
+SELECT COUNT(CustomerID), Country
+FROM Customers
+GROUP BY Country;
+
+#======================== Mian Example =======================
+The **`GROUP BY`** clause in SQL is used to organize rows in a table into groups based on one or more columns. This is especially useful when you want to perform aggregate operations (like `SUM`, `COUNT`, `AVG`, etc.) on subsets of your data.
+
+Let’s dive into **how `GROUP BY` works**, step by step:
+
+---
+
+### **1. Understanding the Basics**
+When you use `GROUP BY`:
+- The rows in the table are divided into groups based on the values in the column(s) specified.
+- Each group contains rows with identical values in the specified column(s).
+- Aggregate functions are then applied to each group.
+
+---
+
+### **2. Execution Process**
+Here’s how `GROUP BY` works internally:
+
+1. **Scan the Table**: Start with the table and select the columns involved.
+2. **Group Rows**: Combine rows that have the same value(s) in the specified column(s).
+3. **Apply Aggregations**: Perform aggregate calculations (if any) on each group.
+
+---
+
+### **3. Example Table**
+
+Imagine a table called `Sales`:
+
+| SaleID | Product  | Region   | Amount  |
+|--------|----------|----------|---------|
+| 1      | Laptop   | North    | 1000    |
+| 2      | Phone    | South    | 500     |
+| 3      | Laptop   | North    | 1200    |
+| 4      | Phone    | East     | 700     |
+| 5      | Tablet   | South    | 300     |
+| 6      | Laptop   | East     | 1500    |
+
+---
+
+### **Query with `GROUP BY`**
+
+**SQL Query:**
+```sql
+SELECT Region, SUM(Amount)
+FROM Sales
+GROUP BY Region;
+```
+
+---
+
+### **Step-by-Step Execution**
+
+1. **Scan the Table:**
+   The database identifies the `Region` column and the `Amount` column for the query.
+
+   ```
+   Region     | Amount
+   --------------------
+   North      | 1000
+   South      | 500
+   North      | 1200
+   East       | 700
+   South      | 300
+   East       | 1500
+   ```
+
+2. **Group Rows by `Region`:**
+   The rows are divided into groups based on unique values in the `Region` column:
+
+   ```
+   Group 1: North -> [1000, 1200]
+   Group 2: South -> [500, 300]
+   Group 3: East  -> [700, 1500]
+   ```
+
+3. **Apply Aggregation (`SUM`):**
+   For each group, the `SUM(Amount)` function calculates the total:
+
+   ```
+   Group 1: North -> SUM(1000 + 1200) = 2200
+   Group 2: South -> SUM(500 + 300) = 800
+   Group 3: East  -> SUM(700 + 1500) = 2200
+   ```
+
+---
+
+### **Result**
+The result of the query is:
+
+| Region   | SUM(Amount) |
+|----------|-------------|
+| North    | 2200        |
+| South    | 800         |
+| East     | 2200        |
+
+---
+
+### **Key Points to Remember**
+- **Columns in `SELECT`**: Only columns in the `GROUP BY` clause or aggregate functions can appear in the `SELECT` statement.
+  - This is because non-aggregated columns that are not part of the `GROUP BY` would be ambiguous.
+- **Order of Execution**:
+  - `FROM` → `WHERE` → `GROUP BY` → `HAVING` → `SELECT` → `ORDER BY`
+- **Filters with `HAVING`**: Use `HAVING` to filter groups (e.g., `HAVING SUM(Amount) > 1000`).
+
+---
+
+### **ASCII Representation**
+
+Here’s an ASCII visualization of the grouping process:
+
+```
+Original Table:
++---------+--------+--------+--------+
+| SaleID  | Product| Region | Amount |
++---------+--------+--------+--------+
+|    1    | Laptop | North  | 1000   |
+|    2    | Phone  | South  | 500    |
+|    3    | Laptop | North  | 1200   |
+|    4    | Phone  | East   | 700    |
+|    5    | Tablet | South  | 300    |
+|    6    | Laptop | East   | 1500   |
++---------+--------+--------+--------+
+
+Grouping by Region:
++---------+----------+
+| Region  | Amount   |
++---------+----------+
+| North   | [1000, 1200] |
+| South   | [500, 300]   |
+| East    | [700, 1500]  |
++---------+----------+
+
+After Aggregation (SUM):
++---------+----------+
+| Region  | SUM      |
++---------+----------+
+| North   | 2200     |
+| South   | 800      |
+| East    | 2200     |
++---------+----------+
+```
+
+---
+
+### **Practical Tips**
+- Use `GROUP BY` with aggregate functions like `COUNT`, `SUM`, `AVG`, `MAX`, and `MIN`.
+- Combine `GROUP BY` with `ORDER BY` for sorted results.
+- Use `HAVING` to filter groups, not individual rows.
+
+Let me know if you'd like further clarification or additional examples!
+
+
+
+
+
+#Having : ===========================================================================================
+The HAVING clause was added to SQL because the WHERE keyword cannot be used with aggregate functions.
+
+
+>>>SELECT column_name(s)
+FROM table_name
+WHERE condition
+GROUP BY column_name(s)
+HAVING condition
+ORDER BY column_name(s);
+
+The following SQL statement lists the number of customers in each country. Only include countries with more than 5 customers:
+>>>SELECT COUNT(CustomerID), Country
+FROM Customers
+GROUP BY Country
+HAVING COUNT(CustomerID) > 5;
+
+The following SQL statement lists the employees that have registered more than 10 orders:
+>>>SELECT Employees.LastName, COUNT(Orders.OrderID) AS NumberOfOrders
+FROM (Orders
+INNER JOIN Employees ON Orders.EmployeeID = Employees.EmployeeID)
+GROUP BY LastName
+HAVING COUNT(Orders.OrderID) > 10;
+
+The following SQL statement lists if the employees "Davolio" or "Fuller" have registered more than 25 orders:
+>>>SELECT Employees.LastName, COUNT(Orders.OrderID) AS NumberOfOrders
+FROM Orders
+INNER JOIN Employees ON Orders.EmployeeID = Employees.EmployeeID
+WHERE LastName = 'Davolio' OR LastName = 'Fuller'
+GROUP BY LastName
+HAVING COUNT(Orders.OrderID) > 25;
+
+
+#Exit: ==================================================================================
+The EXISTS operator is used to test for the existence of any record in a subquery.
+
+The EXISTS operator returns TRUE if the subquery returns one or more records.
+>>>SELECT column_name(s)
+FROM table_name
+WHERE EXISTS
+(SELECT column_name FROM table_name WHERE condition); 
+
+
+>>>SELECT SupplierName
+FROM Suppliers
+WHERE EXISTS (SELECT ProductName FROM Products WHERE Products.SupplierID = Suppliers.supplierID AND Price = 22); 
+
+
+#Offset: ===========================================================================
+
+he OFFSET clause in SQL is used to skip a specified number of rows in the result set before starting to return rows. It is often used with the LIMIT clause (in databases like MySQL and PostgreSQL) or FETCH (in databases like SQL Server and Oracle) to implement pagination.
+
+>>>SELECT column1, column2
+FROM table_name
+LIMIT number_of_rows OFFSET number_to_skip;
+
+>>>SELECT * FROM Employees
+LIMIT 2 OFFSET 2;  -- Skip the first 2 rows
