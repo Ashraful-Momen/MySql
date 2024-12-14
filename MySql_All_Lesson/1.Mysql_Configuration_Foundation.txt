@@ -1,0 +1,45 @@
+#install mysql : -----------------------
+>>>mysql --version
+
+#mysql terminal open : -----------------
+>>> sudo mysql 
+
+
+#run terminal as root : ----------------
+>>> sudo mysql -u root -p
+
+#check the mysql host : ----------------
+MariaDB [mysql]> SHOW VARIABLES LIKE 'hostname';
++---------------+-------+
+| Variable_name | Value |
++---------------+-------+
+| hostname      | kali  |
++---------------+-------+
+1 row in set (0.004 sec)
+
+#check the host details : ----------------------
+MariaDB [mysql]> status;
+--------------
+mysql from 11.4.2-MariaDB, client 15.2 for debian-linux-gnu (x86_64) using  EditLine wrapper
+
+Connection id:		47
+Current database:	mysql
+Current user:		root@localhost
+SSL:			Cipher in use is TLS_AES_256_GCM_SHA384, cert is OK
+Current pager:		stdout
+Using outfile:		''
+Using delimiter:	;
+Server:			MariaDB
+Server version:		11.4.2-MariaDB-4 Debian n/a
+Protocol version:	10
+Connection:		Localhost via UNIX socket
+Server characterset:	utf8mb4
+Db     characterset:	utf8mb4
+Client characterset:	utf8mb3
+Conn.  characterset:	utf8mb3
+UNIX socket:		/run/mysqld/mysqld.sock
+Uptime:			1 hour 4 min 27 sec
+
+Threads: 1  Questions: 958  Slow queries: 0  Opens: 224  Open tables: 71  Queries per second avg: 0.247
+--------------
+
