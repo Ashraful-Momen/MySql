@@ -1,0 +1,396 @@
+#
+    INNER JOIN: Returns records that have matching values in both tables
+    LEFT JOIN: Returns all records from the left table, and the matched records from the right table
+    RIGHT JOIN: Returns all records from the right table, and the matched records from the left table
+    CROSS JOIN: Returns all records from both tables
+    
+    
+Below is an explanation of **INNER JOIN**, **LEFT JOIN**, **RIGHT JOIN**, **SELF JOIN**, and **CROSS JOIN** with their corresponding **MySQL commands** and simplified **ASCII art** to visualize how they work.
+
+---
+
+### **1. INNER JOIN**
+
+An `INNER JOIN` retrieves rows that have matching values in both tables.
+
+#### **ASCII Image**
+
+```
+Table A          Table B
++----+----+      +----+----+
+| ID | Name |    | ID | Age |
++----+----+      +----+----+
+| 1  | John |    | 1  | 25  |
+| 2  | Mary |    | 2  | 30  |
+| 3  | Paul |    | 4  | 40  |
++----+----+      +----+----+
+
+Result (matches only):
++----+-------+-----+
+| ID | Name  | Age |
++----+-------+-----+
+| 1  | John  | 25  |
+| 2  | Mary  | 30  |
++----+-------+-----+
+```
+
+#### **MySQL Command**
+```sql
+SELECT A.ID, A.Name, B.Age
+FROM TableA AS A
+INNER JOIN TableB AS B
+ON A.ID = B.ID;
+```
+
+---
+
+### **2. LEFT JOIN**
+
+A `LEFT JOIN` retrieves all rows from the left table and matching rows from the right table. If no match is found, `NULL` is returned for columns of the right table.
+
+#### **ASCII Image**
+
+```
+Table A          Table B
++----+----+      +----+----+
+| ID | Name |    | ID | Age |
++----+----+      +----+----+
+| 1  | John |    | 1  | 25  |
+| 2  | Mary |    | 2  | 30  |
+| 3  | Paul |    | 4  | 40  |
++----+----+      +----+----+
+
+Result (all from Table A):
++----+-------+------+
+| ID | Name  | Age  |
++----+-------+------+
+| 1  | John  | 25   |
+| 2  | Mary  | 30   |
+| 3  | Paul  | NULL |
++----+-------+------+
+```
+
+#### **MySQL Command**
+```sql
+SELECT A.ID, A.Name, B.Age
+FROM TableA AS A
+LEFT JOIN TableB AS B
+ON A.ID = B.ID;
+```
+
+---
+
+### **3. RIGHT JOIN**
+
+A `RIGHT JOIN` retrieves all rows from the right table and matching rows from the left table. If no match is found, `NULL` is returned for columns of the left table.
+
+#### **ASCII Image**
+
+```
+Table A          Table B
++----+----+      +----+----+
+| ID | Name |    | ID | Age |
++----+----+      +----+----+
+| 1  | John |    | 1  | 25  |
+| 2  | Mary |    | 2  | 30  |
+| 3  | Paul |    | 4  | 40  |
++----+----+      +----+----+
+
+Result (all from Table B):
++----+-------+------+
+| ID | Name  | Age  |
++----+-------+------+
+| 1  | John  | 25   |
+| 2  | Mary  | 30   |
+| 4  | NULL  | 40   |
++----+-------+------+
+```
+
+#### **MySQL Command**
+```sql
+SELECT A.ID, A.Name, B.Age
+FROM TableA AS A
+RIGHT JOIN TableB AS B
+ON A.ID = B.ID;
+```
+
+---
+
+### **4. SELF JOIN**
+
+A `SELF JOIN` is a join where a table is joined with itself. This is useful for hierarchical or comparison scenarios.
+
+#### **ASCII Image**
+
+```
+Table A
++----+-------+
+| ID | Name  |
++----+-------+
+| 1  | John  |
+| 2  | Mary  |
+| 3  | Paul  |
++----+-------+
+
+Result (comparing IDs):
++----+-------+----+-------+
+| ID | Name  | ID | Name  |
++----+-------+----+-------+
+| 1  | John  | 2  | Mary  |
+| 1  | John  | 3  | Paul  |
+| 2  | Mary  | 3  | Paul  |
++----+-------+----+-------+
+```
+
+#### **MySQL Command**
+```sql
+SELECT A.ID, A.Name, B.ID AS ID2, B.Name AS Name2
+FROM TableA AS A
+INNER JOIN TableA AS B
+ON A.ID < B.ID;
+```
+
+---
+
+### **5. CROSS JOIN**
+
+A `CROSS JOIN` produces a Cartesian product, combining every row from one table with every row from another table.
+
+#### **ASCII Image**
+
+```
+Table A          Table B
++----+----+      +----+----+
+| ID | Name |    | ID | Age |
++----+----+      +----+----+
+| 1  | John |    | 1  | 25  |
+| 2  | Mary |    | 2  | 30  |
+| 3  | Paul |    | 4  | 40  |
++----+----+      +----+----+
+
+Result (all combinations):
++----+-------+----+-----+
+| ID | Name  | ID | Age |
++----+-------+----+-----+
+| 1  | John  | 1  | 25  |
+| 1  | John  | 2  | 30  |
+| 1  | John  | 4  | 40  |
+| 2  | Mary  | 1  | 25  |
+| 2  | Mary  | 2  | 30  |
+| 2  | Mary  | 4  | 40  |
+| 3  | Paul  | 1  | 25  |
+| 3  | Paul  | 2  | 30  |
+| 3  | Paul  | 4  | 40  |
++----+-------+----+-----+
+```
+
+#### **MySQL Command**
+```sql
+SELECT A.ID, A.Name, B.ID AS ID2, B.Age
+FROM TableA AS A
+CROSS JOIN TableB AS B;
+```
+
+---
+
+### **Summary of JOINs**
+
+| Type of JOIN   | Description                                           |
+|----------------|-------------------------------------------------------|
+| **INNER JOIN** | Matches rows in both tables based on a condition.     |
+| **LEFT JOIN**  | All rows from the left table, with matches from right.|
+| **RIGHT JOIN** | All rows from the right table, with matches from left.|
+| **SELF JOIN**  | Joins a table with itself.                           |
+| **CROSS JOIN** | Produces all combinations of rows from both tables.   |
+
+
+
+
+#joining with 3 tables=====================================================================
+Below is an explanation of the join types (`INNER JOIN`, `LEFT JOIN`, `RIGHT JOIN`, `SELF JOIN`, `CROSS JOIN`) using **three tables** and **revised notes** for better clarity.
+
+---
+
+### Tables Used:
+**TableA**, **TableB**, and **TableC**
+
+#### Table A: Customers
+```
++----+----------+
+| ID | Name     |
++----+----------+
+| 1  | John     |
+| 2  | Mary     |
+| 3  | Paul     |
++----+----------+
+```
+
+#### Table B: Orders
+```
++----+------------+---------+
+| ID | CustomerID | OrderID |
++----+------------+---------+
+| 1  | 1          | 101     |
+| 2  | 2          | 102     |
+| 3  | 4          | 103     |
++----+------------+---------+
+```
+
+#### Table C: Payments
+```
++----+---------+---------+
+| ID | OrderID | Amount  |
++----+---------+---------+
+| 1  | 101     | 200     |
+| 2  | 102     | 150     |
+| 3  | 104     | 300     |
++----+---------+---------+
+```
+
+---
+
+### **1. INNER JOIN**
+**Definition:** Matches rows in all tables based on the join conditions.
+
+**Result:**
+```
++----------+---------+--------+
+| Name     | OrderID | Amount |
++----------+---------+--------+
+| John     | 101     | 200    |
+| Mary     | 102     | 150    |
++----------+---------+--------+
+```
+
+**MySQL Command:**
+```sql
+SELECT A.Name, B.OrderID, C.Amount
+FROM Customers AS A
+INNER JOIN Orders AS B ON A.ID = B.CustomerID
+INNER JOIN Payments AS C ON B.OrderID = C.OrderID;
+```
+
+**Note:** Returns rows where matches exist in all three tables.
+
+---
+
+### **2. LEFT JOIN**
+**Definition:** Retrieves all rows from the leftmost table and matching rows from other tables. If no match, `NULL` is returned.
+
+**Result:**
+```
++----------+---------+--------+
+| Name     | OrderID | Amount |
++----------+---------+--------+
+| John     | 101     | 200    |
+| Mary     | 102     | 150    |
+| Paul     | NULL    | NULL   |
++----------+---------+--------+
+```
+
+**MySQL Command:**
+```sql
+SELECT A.Name, B.OrderID, C.Amount
+FROM Customers AS A
+LEFT JOIN Orders AS B ON A.ID = B.CustomerID
+LEFT JOIN Payments AS C ON B.OrderID = C.OrderID;
+```
+
+**Note:** All rows from `Customers` are returned, even if no match exists in `Orders` or `Payments`.
+
+---
+
+### **3. RIGHT JOIN**
+**Definition:** Retrieves all rows from the rightmost table and matching rows from other tables. If no match, `NULL` is returned.
+
+**Result:**
+```
++----------+---------+--------+
+| Name     | OrderID | Amount |
++----------+---------+--------+
+| John     | 101     | 200    |
+| Mary     | 102     | 150    |
+| NULL     | 104     | 300    |
++----------+---------+--------+
+```
+
+**MySQL Command:**
+```sql
+SELECT A.Name, B.OrderID, C.Amount
+FROM Customers AS A
+RIGHT JOIN Orders AS B ON A.ID = B.CustomerID
+RIGHT JOIN Payments AS C ON B.OrderID = C.OrderID;
+```
+
+**Note:** All rows from `Payments` are returned, even if no match exists in `Orders` or `Customers`.
+
+---
+
+### **4. SELF JOIN**
+**Definition:** Joins a table with itself to compare rows within the same table.
+
+**Example Scenario:** Compare customers who have consecutive IDs.
+
+**Result:**
+```
++----------+----------+
+| Name     | Name     |
++----------+----------+
+| John     | Mary     |
+| Mary     | Paul     |
++----------+----------+
+```
+
+**MySQL Command:**
+```sql
+SELECT A.Name AS Name1, B.Name AS Name2
+FROM Customers AS A
+INNER JOIN Customers AS B ON A.ID + 1 = B.ID;
+```
+
+**Note:** Useful for hierarchical relationships or comparisons within the same table.
+
+---
+
+### **5. CROSS JOIN**
+**Definition:** Produces a Cartesian product, where every row from one table is paired with every row from other tables.
+
+**Result:**
+```
++----------+---------+--------+
+| Name     | OrderID | Amount |
++----------+---------+--------+
+| John     | 101     | 200    |
+| John     | 102     | 150    |
+| John     | 104     | 300    |
+| Mary     | 101     | 200    |
+| Mary     | 102     | 150    |
+| Mary     | 104     | 300    |
+| Paul     | 101     | 200    |
+| Paul     | 102     | 150    |
+| Paul     | 104     | 300    |
++----------+---------+--------+
+```
+
+**MySQL Command:**
+```sql
+SELECT A.Name, B.OrderID, C.Amount
+FROM Customers AS A
+CROSS JOIN Orders AS B
+CROSS JOIN Payments AS C;
+```
+
+**Note:** Use cautiously as it generates all possible combinations, leading to large datasets.
+
+---
+
+### **Revised Notes**
+
+| Type of JOIN   | Description                                                                                     |
+|----------------|-------------------------------------------------------------------------------------------------|
+| **INNER JOIN** | Retrieves rows where there is a match in all joined tables.                                     |
+| **LEFT JOIN**  | Retrieves all rows from the leftmost table, with matching rows from other tables or `NULL`.     |
+| **RIGHT JOIN** | Retrieves all rows from the rightmost table, with matching rows from other tables or `NULL`.    |
+| **SELF JOIN**  | Joins a table to itself to compare rows within the same table.                                  |
+| **CROSS JOIN** | Generates a Cartesian product of all rows from all tables involved.                             |
+
