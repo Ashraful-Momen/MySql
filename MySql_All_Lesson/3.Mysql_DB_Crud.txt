@@ -1,0 +1,61 @@
+#Database :DB CRUD================================================================================
+#Show all database : ---------------------
+>>> SHOW DATABASES;
+
+MariaDB [mysql]> show databases;
++--------------------+
+| Database           |
++--------------------+
+| information_schema |
+| mysql              |
+| performance_schema |
+| sys                |
++--------------------+
+4 rows in set (0.000 sec)
+
+information_schema: Contains metadata about the database structure.
+mysql: Stores database system information (e.g., user accounts and privileges).
+performance_schema: Provides performance metrics.
+test: A default test database (may not always exist).
+Other databases: User-created databases.
+
+#show the current databse: ---------------------------------------
+MariaDB [mysql]> select database();
++------------+
+| database() |
++------------+
+| mysql      |
++------------+
+1 row in set (0.000 sec)
+
+
+
+
+#Switch/select to the mysql database, which stores user information:---------------
+>>> USE mysql; 
+
+MariaDB [mysql]> use mysql;
+Database changed
+
+
+#Search database: ------------------------------------------------------
+>>>SHOW DATABASES LIKE 'your_database_name';
+
+MariaDB [mysql]> show databases like '%mysql%';
++--------------------+
+| Database (%mysql%) |
++--------------------+
+| mysql              |
++--------------------+
+1 row in set (0.001 sec)
+
+#Create DB ----------------------------------
+>>>CREATE DATABASE new_database_name;
+
+
+#Copy all tables from the old database to the new one:----------------
+>>>CREATE TABLE new_database_name.table_name AS SELECT * FROM old_database_name.table_name;
+
+
+#Delete/Drop DB: -----------------------------------------------
+>>> DROP DATABASE old_database_name;
