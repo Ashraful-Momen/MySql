@@ -1,0 +1,56 @@
+#Table : =========================================================================================
+
+#Create Table with column: ------------------------------
+-- Create a table
+CREATE TABLE users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    email VARCHAR(100) UNIQUE NOT NULL
+);
+
+
+#Insert value into column into table : ---------------------------
+-- Insert data into the table
+INSERT INTO users (name, email) VALUES ('John', 'john@example.com');
+INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com');
+
+
+#Read data from table : -------------------------
+>>> SELECT * FROM table_name;
+
+#read specific column : 
+>>> SELECT column1, column2 FROM table_name;
+
+
+#show total column in the table : ----------------
+>>>describe table_name
+
+#search data form table : ----------------------
+>>> SELECT * FROM table_name WHERE condition;
+>>> SELECT * FROM users WHERE name = 'John';
+
+
+#Update Table with column : ---------------------
+>>> UPDATE table_name SET column1 = value1, column2 = value2 WHERE condition;
+>>> UPDATE users SET email = 'newemail@example.com' WHERE id = 1;
+
+#Delete table : ----------------------
+>>>DELETE FROM table_name WHERE condition;
+>>>DELETE FROM users WHERE id = 1;
+
+#delete all: ------
+>>> DELETE FROM table_name;
+
+#Search data from Table : ------------------
+>>> SELECT * FROM table_name WHERE column_name LIKE '%search_term%';
+>>> SELECT * FROM users WHERE name LIKE '%John%';
+>>> SELECT * FROM users WHERE name = 'John' AND email = 'john@example.com';
+
+
+#Truncate Table (Remove All Data)
+
+#If you want to remove all data and reset auto-increment (if any):-------------
+>>>TRUNCATE TABLE table_name;
+
+#Copy all tables from the old database to the new one:----------------
+>>>CREATE TABLE new_database_name.table_name AS SELECT * FROM old_database_name.table_name;
