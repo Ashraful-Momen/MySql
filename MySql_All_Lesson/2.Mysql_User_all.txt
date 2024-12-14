@@ -1,0 +1,70 @@
+#User:curd ===========================================================================================
+#select column_name from database_name.table_name; 
+
+#use mysql database , all user info store in user table . 
+
+#show all user and host form mysql database > user_table: 
+
+#show all the user : 
+>>> select user from mysql.user; 
+
+MariaDB [mysql]> select user from mysql.user;
++-------------+
+| User        |
++-------------+
+| mariadb.sys |
+| mysql       |
+| root        |
++-------------+
+3 rows in set (0.002 sec)
+
+
+>>> select user, host from mysql.user;
+
+MariaDB [mysql]> select user, host from mysql.user;
++-------------+-----------+
+| User        | Host      |
++-------------+-----------+
+| mariadb.sys | localhost |
+| mysql       | localhost |
+| root        | localhost |
++-------------+-----------+
+3 rows in set (0.001 sec)
+
+#create new user :------------------------------------------
+>>>CREATE USER 'newuser'@'localhost' IDENTIFIED BY 'newpassword';
+
+
+Replace 'username' with the desired username.
+Replace 'host' with the host from which the user will connect (use '%' for any host, 'localhost' for local connections).
+Replace 'password' with the user's password.
+
+#To grant privileges (e.g., all privileges) to a user on a specific database:----------------
+>>>GRANT ALL PRIVILEGES ON my_database.* TO 'newuser'@'localhost';
+
+#after apply the permission : 
+>>> FLUSH PRIVILEGES;
+
+
+#check the previleges of the user : 
+>>> SHOW GRANTS FOR 'newuser'@'localhost';
+
+
+MariaDB [mysql]> show grants for 'newuser'@'localhost';
++----------------------------------------------------------------------------------------------------------------+
+| Grants for newuser@localhost                                                                                   |
++----------------------------------------------------------------------------------------------------------------+
+| GRANT USAGE ON *.* TO `newuser`@`localhost` IDENTIFIED BY PASSWORD '*FE4F2D624C07AAEBB979DA5C980D0250C37D8F63' |
+| GRANT ALL PRIVILEGES ON `mysql`.* TO `newuser`@`localhost`                                                     |
++----------------------------------------------------------------------------------------------------------------+
+2 rows in set (0.000 sec)
+
+
+#change user password: -----------------------------------
+>>>ALTER USER 'newuser'@'localhost' IDENTIFIED BY 'newpassword123';
+
+#search user : -------------------------------------------
+>>>SELECT user, host FROM mysql.user WHERE user = 'username';
+
+#Delete User: --------------------------------------------
+>>> DROP USER 'newuser'@'localhost';
