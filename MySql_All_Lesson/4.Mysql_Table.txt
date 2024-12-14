@@ -1,12 +1,16 @@
 #Table : =========================================================================================
 
 #Create Table with column: ------------------------------
--- Create a table
-CREATE TABLE users (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    email VARCHAR(100) UNIQUE NOT NULL
+>>>CREATE TABLE books (
+    book_id INT AUTO_INCREMENT,      -- book_id as an auto-incrementing integer
+    title VARCHAR(255) NOT NULL,      -- book title
+    author_id INT,                   -- foreign key that references authors table
+    PRIMARY KEY (book_id),           -- primary key constraint on book_id
+    FOREIGN KEY (author_id) REFERENCES authors(author_id)  -- foreign key constraint
+    ON DELETE CASCADE   -- If an author is deleted, delete all their books.
+    ON UPDATE CASCADE   -- If an author's ID is updated, update the author_id in books table as well.
 );
+
 
 
 #Insert value into column into table : ---------------------------
