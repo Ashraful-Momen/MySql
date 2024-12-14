@@ -11,7 +11,25 @@
     ON UPDATE CASCADE   -- If an author's ID is updated, update the author_id in books table as well.
 );
 
+>>>CREATE TABLE books (
+    book_id INT AUTO_INCREMENT,      -- book_id as an auto-incrementing integer
+    title VARCHAR(255) NOT NULL,      -- book title
+    author_id INT,                   -- foreign key that references authors table
+    PRIMARY KEY (book_id),           -- primary key constraint on book_id
+    FOREIGN KEY (author_id) REFERENCES authors(author_id)
+    ON DELETE SET NULL               -- Set foreign key to NULL if author is deleted
+    ON UPDATE CASCADE               -- Update foreign key if author_id is updated
+);
 
+Choosing the Right Action
+
+    Use CASCADE if you want related records to be automatically deleted or updated when the parent record changes.
+    Use RESTRICT or NO ACTION if you want to prevent any changes to the parent record if there are dependent child records.
+    Use SET NULL if you want to keep the child record but remove the link to the parent (by setting the foreign key to NULL).
+    Use SET DEFAULT if you want to set the foreign key to a default value when the referenced row is deleted or updated.
+
+
+#---------------------------------------------------------------------------------------
 
 #Insert value into column into table : ---------------------------
 -- Insert data into the table
