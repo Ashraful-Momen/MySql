@@ -1,0 +1,77 @@
+Here are the basic MySQL CRUD (Create, Read, Update, Delete) commands:
+
+---
+
+### **1. CREATE**
+To insert data into a table:
+```sql
+INSERT INTO table_name (column1, column2, column3) 
+VALUES ('value1', 'value2', 'value3');
+```
+
+---
+
+### **2. READ**
+To retrieve data from a table:
+- Retrieve all columns:
+  ```sql
+  SELECT * FROM table_name;
+  ```
+
+- Retrieve specific columns:
+  ```sql
+  SELECT column1, column2 FROM table_name;
+  ```
+
+- With conditions:
+  ```sql
+  SELECT * FROM table_name WHERE column1 = 'value';
+  ```
+
+---
+
+### **3. UPDATE**
+To modify existing data in a table:
+```sql
+UPDATE table_name 
+SET column1 = 'new_value1', column2 = 'new_value2' 
+WHERE condition;
+```
+
+---
+
+### **4. DELETE**
+To remove data from a table:
+```sql
+DELETE FROM table_name 
+WHERE condition;
+```
+
+> **Note:** Use `WHERE` to avoid deleting all rows accidentally.
+
+---
+
+### **Example Workflow**
+Assume a table named `users` with columns `id`, `name`, and `email`:
+1. **Create**:
+   ```sql
+   INSERT INTO users (name, email) 
+   VALUES ('John Doe', 'john.doe@example.com');
+   ```
+2. **Read**:
+   ```sql
+   SELECT * FROM users WHERE name = 'John Doe';
+   ```
+3. **Update**:
+   ```sql
+   UPDATE users 
+   SET email = 'john.new@example.com' 
+   WHERE name = 'John Doe';
+   ```
+4. **Delete**:
+   ```sql
+   DELETE FROM users 
+   WHERE name = 'John Doe';
+   ```
+
+Let me know if you need anything more specific! 🚀
