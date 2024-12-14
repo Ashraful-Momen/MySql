@@ -1,0 +1,175 @@
+In MySQL, **indexes** are used to improve the performance of queries by enabling faster data retrieval. Indexes are created on columns that are frequently used in **WHERE**, **JOIN**, **ORDER BY**, or **GROUP BY** clauses.
+
+---
+
+### Key Concepts of Indexing:
+
+1. **Primary Index**: Automatically created when a `PRIMARY KEY` is defined on a column.
+2. **Unique Index**: Ensures all values in the indexed column(s) are unique.
+3. **Fulltext Index**: Used for full-text searches in `TEXT` or `VARCHAR` columns.
+4. **Composite Index**: A single index on multiple columns.
+5. **Spatial Index**: Used for spatial data types like `GEOMETRY`.
+
+---
+
+### Commands for Indexing in MySQL:
+
+---
+
+#### **1. Create Index**
+
+- **Single Column Index**:
+```sql
+CREATE INDEX index_name ON table_name (column_name);
+```
+
+Example:
+```sql
+CREATE INDEX idx_name ON users (name);
+```
+
+- **Composite Index** (Multiple Columns):
+```sql
+CREATE INDEX index_name ON table_name (column1, column2);
+```
+
+Example:
+```sql
+CREATE INDEX idx_name_email ON users (name, email);
+```
+
+- **Unique Index**:
+```sql
+CREATE UNIQUE INDEX index_name ON table_name (column_name);
+```
+
+Example:
+```sql
+CREATE UNIQUE INDEX idx_unique_email ON users (email);
+```
+
+---
+
+#### **2. View Indexes**
+
+To see all indexes in a table:
+```sql
+SHOW INDEX FROM table_name;
+```
+
+Example:
+```sql
+SHOW INDEX FROM users;
+```
+
+---
+
+#### **3. Drop Index**
+
+To remove an index:
+```sql
+DROP INDEX index_name ON table_name;
+```
+
+Example:
+```sql
+DROP INDEX idx_name ON users;
+```
+
+---
+
+#### **4. Add Index While Creating a Table**
+
+You can define indexes when creating a table:
+
+```sql
+CREATE TABLE users (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100),
+    email VARCHAR(100) UNIQUE,
+    INDEX idx_name (name)
+);
+```
+
+---
+
+#### **5. Add Index After Table Creation**
+
+To add an index to an existing table:
+```sql
+ALTER TABLE table_name ADD INDEX index_name (column_name);
+```
+
+Example:
+```sql
+ALTER TABLE users ADD INDEX idx_email (email);
+```
+
+---
+
+#### **6. Search Using Index**
+
+Indexes automatically optimize queries for faster searches. For example:
+
+```sql
+SELECT * FROM users WHERE name = 'John';
+```
+
+If `name` is indexed, this query will run faster because the index reduces the rows that need to be scanned.
+
+---
+
+#### **7. Update Indexes**
+
+Indexes are automatically updated when data is inserted, updated, or deleted. No explicit update command is required.
+
+---
+
+#### **8. Using Full-Text Indexes**
+
+To create a full-text index:
+```sql
+CREATE FULLTEXT INDEX index_name ON table_name (column_name);
+```
+
+Example:
+```sql
+CREATE FULLTEXT INDEX idx_fulltext_name ON users (name);
+```
+
+To perform a full-text search:
+```sql
+SELECT * FROM users WHERE MATCH(name) AGAINST ('John');
+```
+
+---
+
+### Best Practices for Indexing:
+
+1. **Index columns used in WHERE or JOIN** clauses to speed up searches.
+2. Avoid adding indexes on columns with low cardinality (e.g., `gender` with only `M` and `F` values).
+3. Use composite indexes only when necessary to cover multiple columns.
+4. Regularly check and optimize your indexes for better query performance.
+
+---
+
+### Summary of Index Commands:
+
+```sql
+-- Create an Index
+CREATE INDEX idx_name ON users (name);
+
+-- View Indexes
+SHOW INDEX FROM users;
+
+-- Drop an Index
+DROP INDEX idx_name ON users;
+
+-- Add Index to an Existing Table
+ALTER TABLE users ADD INDEX idx_email (email);
+
+-- Create Full-Text Index
+CREATE FULLTEXT INDEX idx_fulltext_name ON users (name);
+```
+
+Indexes are powerful tools for optimizing your database. Let me know if you need examples specific to your use case!
