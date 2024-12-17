@@ -1,0 +1,180 @@
+Normalization is a process in database design that organizes data to reduce redundancy and improve data integrity. Here's a simple explanation of normalization with an ASCII representation and an example in MySQL.
+
+---
+
+### **Normalization Stages**
+
+1. **1NF (First Normal Form)**: Ensure each cell in the table contains a single value (atomic values) and each record is unique.
+2. **2NF (Second Normal Form)**: Achieve 1NF and ensure that all non-primary key attributes are fully dependent on the primary key.
+3. **3NF (Third Normal Form)**: Achieve 2NF and ensure no transitive dependency (non-primary key attributes depend on other non-primary key attributes).
+
+---
+
+### **Example**
+**Scenario**: A simple student database for tracking courses and grades.
+
+#### **Unnormalized Table**
+```
++----+---------+-------------------+----------+
+| ID | Name    | Courses           | Grades   |
++----+---------+-------------------+----------+
+| 1  | Alice   | Math, Science     | A, B     |
+| 2  | Bob     | History, Science  | B, A     |
++----+---------+-------------------+----------+
+```
+- **Problems**: Multiple values in `Courses` and `Grades` violate 1NF.
+
+---
+
+#### **1NF**
+Split multivalued attributes into separate rows.
+
+```
++----+---------+---------+-------+
+| ID | Name    | Course  | Grade |
++----+---------+---------+-------+
+| 1  | Alice   | Math    | A     |
+| 1  | Alice   | Science | B     |
+| 2  | Bob     | History | B     |
+| 2  | Bob     | Science | A     |
++----+---------+---------+-------+
+```
+- **Primary Key**: `(ID, Course)`
+
+---
+
+#### **2NF**
+Remove partial dependencies. Create separate tables for Students and Courses.
+
+**Student Table**:
+```
++----+---------+
+| ID | Name    |
++----+---------+
+| 1  | Alice   |
+| 2  | Bob     |
++----+---------+
+```
+
+**Course Table**:
+```
++----+---------+-------+
+| ID | Course  | Grade |
++----+---------+-------+
+| 1  | Math    | A     |
+| 1  | Science | B     |
+| 2  | History | B     |
+| 2  | Science | A     |
++----+---------+-------+
+```
+- Each non-primary key attribute is fully dependent on the primary key.
+
+---
+
+#### **3NF**
+Remove transitive dependencies. If grades depend on courses, separate them.
+
+**Student Table**:
+```
++----+---------+
+| ID | Name    |
++----+---------+
+| 1  | Alice   |
+| 2  | Bob     |
++----+---------+
+```
+
+**Course Table**:
+```
++----+---------+
+| CID | Course  |
++----+---------+
+| 1   | Math    |
+| 2   | Science |
+| 3   | History |
++----+---------+
+```
+
+**Grade Table**:
+```
++----+----+-------+
+| ID | CID | Grade |
++----+----+-------+
+| 1  | 1   | A     |
+| 1  | 2   | B     |
+| 2  | 3   | B     |
+| 2  | 2   | A     |
++----+----+-------+
+```
+
+---
+
+### **ASCII Representation**
+
+Before Normalization:
+```
++----+---------+-------------------+----------+
+| ID | Name    | Courses           | Grades   |
++----+---------+-------------------+----------+
+| 1  | Alice   | Math, Science     | A, B     |
++----+---------+-------------------+----------+
+```
+
+After 3NF:
+```
+STUDENT TABLE
++----+---------+
+| ID | Name    |
++----+---------+
+| 1  | Alice   |
++----+---------+
+
+COURSE TABLE
++----+---------+
+| CID | Course  |
++----+---------+
+| 1   | Math    |
++----+---------+
+
+GRADE TABLE
++----+----+-------+
+| ID | CID | Grade |
++----+----+-------+
+| 1  | 1   | A     |
++----+----+-------+
+```
+
+---
+
+### **MySQL Implementation**
+
+```sql
+-- Student Table
+CREATE TABLE Student (
+    ID INT PRIMARY KEY,
+    Name VARCHAR(100)
+);
+
+-- Course Table
+CREATE TABLE Course (
+    CID INT PRIMARY KEY,
+    Course VARCHAR(100)
+);
+
+-- Grade Table
+CREATE TABLE Grade (
+    ID INT,
+    CID INT,
+    Grade CHAR(1),
+    PRIMARY KEY (ID, CID),
+    FOREIGN KEY (ID) REFERENCES Student(ID),
+    FOREIGN KEY (CID) REFERENCES Course(CID)
+);
+
+-- Insert Data
+INSERT INTO Student (ID, Name) VALUES (1, 'Alice'), (2, 'Bob');
+INSERT INTO Course (CID, Course) VALUES (1, 'Math'), (2, 'Science'), (3, 'History');
+INSERT INTO Grade (ID, CID, Grade) VALUES (1, 1, 'A'), (1, 2, 'B'), (2, 3, 'B'), (2, 2, 'A');
+```
+
+This ensures the database is normalized and avoids redundancy. Let me know if you'd like further details!
