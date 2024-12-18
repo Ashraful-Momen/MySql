@@ -1,0 +1,448 @@
+# Simple MySQL Sharding with Laravel
+
+## System Architecture
+```
++----------------------+
+|    Laravel App       |
++----------------------+
+          |
+          v
++----------------------+
+|   ShardingManager    |
+| - Route Data         |
+| - Create New Shards  |
+| - Monitor Size       |
++----------------------+
+          |
+     +----+----+
+     |         |
+     v         v
++--------+  +--------+
+|Shard_1 |  |Shard_2 |  ...
++--------+  +--------+
+```
+
+## Data Flow
+```
+1. Insert Request
+     +--------+
+     |New Data|
+     +--------+
+         |
+         v
++------------------+
+|Calculate Shard ID|    +---------------+
+|Based on:         |--->|1. Range Based |
+|- Value Range     |    |2. Hash Based  |
+|- Hash            |    +---------------+
++------------------+
+         |
+         v
++------------------+
+|Check Shard Size  |
+|If > Limit:       |
+|Create New Shard  |
++------------------+
+         |
+         v
++------------------+
+|Insert Into Shard |
++------------------+
+```
+
+## Shard Creation Process
+```
+If Shard Full (>1M records):
++--------------+     +--------------+
+|  Shard_1     | >>> |  Shard_2     |
+|  (1M records)| >>> |  (0 records) |
++--------------+ >>> +--------------+
+                 |
+            Create New
+            Shard & Update
+            Mappings
+```
+
+## Database Structure
+```
++------------------+     +------------------+
+|   shard_maps     |     |   users_1        |
+|------------------|     |------------------|
+| - shard_id       |     | - id            |
+| - key_from       |     | - name          |
+| - key_to         |     | - email         |
+| - table_name     |     | - created_at    |
++------------------+     +------------------+
+         |
+         |              +------------------+
+         |              |   users_2        |
+         +------------->|------------------|
+                       | - id            |
+                       | - name          |
+                       | - email         |
+                       | - created_at    |
+                       +------------------+
+```
+
+=============================================================
+#sharding Implementation Code : 
+----------------------------------
+<?php
+
+namespace App\Services;
+
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Config;
+use Exception;
+
+class ShardingService
+{
+    protected $config;
+    protected $shardConnections = [];
+
+    public function __construct()
+    {
+        $this->config = Config::get('sharding');
+    }
+
+    /**
+     * Get or create shard for key
+     */
+    public function getShardForKey($key)
+    {
+        $shardId = $this->calculateShardId($key);
+        return $this->getShardConnection($shardId);
+    }
+
+    /**
+     * Calculate shard ID based on key
+     */
+    protected function calculateShardId($key)
+    {
+        if ($this->config['shard_by'] === 'country') {
+            return $this->getCountryBasedShardId($key);
+        }
+        return $this->getHashBasedShardId($key);
+    }
+
+    /**
+     * Get country-based shard ID
+     */
+    protected function getCountryBasedShardId($country)
+    {
+        $shard = DB::table('shard_map')
+            ->where('shard_key', $country)
+            ->where('is_active', true)
+            ->first();
+
+        if (!$shard) {
+            return $this->createNewShard($country);
+        }
+
+        return $shard->id;
+    }
+
+    /**
+     * Get hash-based shard ID
+     */
+    protected function getHashBasedShardId($userId)
+    {
+        return crc32($userId) % $this->config['total_shards'];
+    }
+
+    /**
+     * Create new shard
+     */
+    protected function createNewShard($shardKey)
+    {
+        DB::beginTransaction();
+        try {
+            // Get next available shard ID
+            $shardId = DB::table('shard_map')->max('id') + 1;
+
+            // Create new database for shard
+            $dbName = "shard_{$shardId}";
+            DB::statement("CREATE DATABASE IF NOT EXISTS {$dbName}");
+
+            // Run migrations for new shard
+            $this->runMigrations($dbName);
+
+            // Update shard map
+            DB::table('shard_map')->insert([
+                'id' => $shardId,
+                'shard_key' => $shardKey,
+                'master_host' => $this->config['default_master'],
+                'slave_host' => $this->config['default_slave'],
+                'is_active' => true
+            ]);
+
+            DB::commit();
+            return $shardId;
+        } catch (Exception $e) {
+            DB::rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * Get shard connection
+     */
+    protected function getShardConnection($shardId)
+    {
+        if (!isset($this->shardConnections[$shardId])) {
+            $shard = DB::table('shard_map')
+                ->where('id', $shardId)
+                ->where('is_active', true)
+                ->first();
+
+            if (!$shard) {
+                throw new Exception("Shard not found");
+            }
+
+            // Try master connection
+            try {
+                $connection = $this->connectToMaster($shard);
+                $this->shardConnections[$shardId] = $connection;
+            } catch (Exception $e) {
+                // Failover to slave
+                $connection = $this->connectToSlave($shard);
+                $this->shardConnections[$shardId] = $connection;
+                
+                // Mark master as inactive and promote slave
+                $this->handleFailover($shardId);
+            }
+        }
+
+        return $this->shardConnections[$shardId];
+    }
+
+    /**
+     * Connect to master database
+     */
+    protected function connectToMaster($shard)
+    {
+        Config::set("database.connections.shard_{$shard->id}", [
+            'driver' => 'mysql',
+            'host' => $shard->master_host,
+            'database' => "shard_{$shard->id}",
+            'username' => $this->config['db_username'],
+            'password' => $this->config['db_password']
+        ]);
+
+        return DB::connection("shard_{$shard->id}");
+    }
+
+    /**
+     * Connect to slave database
+     */
+    protected function connectToSlave($shard)
+    {
+        Config::set("database.connections.shard_{$shard->id}_slave", [
+            'driver' => 'mysql',
+            'host' => $shard->slave_host,
+            'database' => "shard_{$shard->id}",
+            'username' => $this->config['db_username'],
+            'password' => $this->config['db_password']
+        ]);
+
+        return DB::connection("shard_{$shard->id}_slave");
+    }
+
+    /**
+     * Handle failover to slave
+     */
+    protected function handleFailover($shardId)
+    {
+        $shard = DB::table('shard_map')
+            ->where('id', $shardId)
+            ->first();
+
+        // Promote slave to master
+        DB::table('shard_map')
+            ->where('id', $shardId)
+            ->update([
+                'master_host' => $shard->slave_host,
+                'slave_host' => null
+            ]);
+
+        // Notify admin
+        // ... implement notification logic
+    }
+
+    /**
+     * Monitor shard sizes
+     */
+    public function monitorShards()
+    {
+        $shards = DB::table('shard_map')
+            ->where('is_active', true)
+            ->get();
+
+        foreach ($shards as $shard) {
+            $size = $this->getShardSize($shard->id);
+            
+            if ($size > $this->config['max_shard_size']) {
+                $this->splitShard($shard->id);
+            }
+        }
+    }
+
+    /**
+     * Get shard size
+     */
+    protected function getShardSize($shardId)
+    {
+        $connection = $this->getShardConnection($shardId);
+        $result = $connection->select('SELECT COUNT(*) as count FROM users')[0];
+        return $result->count;
+    }
+
+    /**
+     * Split shard
+     */
+    protected function splitShard($shardId)
+    {
+        $connection = $this->getShardConnection($shardId);
+        $newShardId = $this->createNewShard('split_' . $shardId);
+
+        // Get middle point
+        $midPoint = $connection
+            ->table('users')
+            ->orderBy('id')
+            ->offset($this->getShardSize($shardId) / 2)
+            ->limit(1)
+            ->first();
+
+        // Move data to new shard
+        $connection->transaction(function () use ($shardId, $newShardId, $midPoint) {
+            $newConnection = $this->getShardConnection($newShardId);
+            
+            $connection->table('users')
+                ->where('id', '>', $midPoint->id)
+                ->chunk(1000, function ($users) use ($newConnection) {
+                    $newConnection->table('users')->insert($users->toArray());
+                });
+
+            $connection->table('users')
+                ->where('id', '>', $midPoint->id)
+                ->delete();
+        });
+    }
+}
+
+// User Model (app/Models/User.php)
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use App\Services\ShardingService;
+
+class User extends Model
+{
+    protected $guarded = [];
+    protected static $shardingService;
+
+    public static function boot()
+    {
+        parent::boot();
+        static::$shardingService = new ShardingService();
+    }
+
+    public function getConnection()
+    {
+        return static::$shardingService->getShardForKey(
+            $this->country ?? $this->id
+        );
+    }
+}
+
+// Command for monitoring shards (app/Console/Commands/MonitorShards.php)
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use App\Services\ShardingService;
+
+class MonitorShards extends Command
+{
+    protected $signature = 'shards:monitor';
+    protected $description = 'Monitor shard sizes and health';
+
+    public function handle()
+    {
+        $service = new ShardingService();
+        $service->monitorShards();
+    }
+}
+
+=================================================================================
+Laravel Sharding Configuration File : 
+----------------------------------------
+<?php
+// config/sharding.php
+
+return [
+    // Sharding method: 'country' or 'user_id'
+    'shard_by' => 'country',
+
+    // Total number of initial shards
+    'total_shards' => 3,
+
+    // Size limits for auto-scaling
+    'max_shard_size' => 1000000, // 1 million records
+    'min_shard_size' => 100000,  // 100k records
+
+    // Database configuration
+    'db_username' => env('DB_USERNAME', 'root'),
+    'db_password' => env('DB_PASSWORD', ''),
+
+    // Default hosts
+    'default_master' => env('DB_HOST', 'localhost'),
+    'default_slave' => env('DB_SLAVE_HOST', 'slave.localhost'),
+
+    // Monitoring settings
+    'monitor_interval' => 300, // 5 minutes
+];
+
+// config/database.php (add to existing file)
+'connections' => [
+    // ... other connections ...
+
+    'shard_management' => [
+        'driver' => 'mysql',
+        'host' => env('DB_HOST', 'localhost'),
+        'database' => 'shard_management',
+        'username' => env('DB_USERNAME', 'forge'),
+        'password' => env('DB_PASSWORD', ''),
+        'charset' => 'utf8mb4',
+        'collation' => 'utf8mb4_unicode_ci',
+        'prefix' => '',
+        'strict' => true,
+        'engine' => null,
+    ],
+],
+
+
+====================================================
+First, set up your configuration files: 
+php artisan vendor:publish --tag=sharding-config
+
+Create the shard management database and tables:
+mysql -u root -p < database/migrations/create_shard_management.sql
+
+Use the User model in your application:
+---------------------------------------
+use App\Models\User;
+
+// Create user (automatically sharded)
+$user = User::create([
+    'name' => 'John Doe',
+    'email' => 'john@example.com',
+    'country' => 'US'
+]);
+
+// Find user (automatically uses correct shard)
+$user = User::find($id);
+---------------------------------------
+Set up monitoring:
+-----------------
+# Add to crontab
+* * * * * cd /path-to-your-app && php artisan shards:monitor
