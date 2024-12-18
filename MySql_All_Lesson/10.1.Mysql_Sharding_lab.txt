@@ -1,0 +1,460 @@
+# Complete MySQL Database Sharding Tutorial
+
+## Table of Contents
+1. [Prerequisites](#prerequisites)
+2. [Basic Setup](#basic-setup)
+3. [Implementation Approaches](#implementation-approaches)
+4. [Practical Examples](#practical-examples)
+5. [Monitoring and Maintenance](#monitoring-and-maintenance)
+6. [Best Practices](#best-practices)
+
+## Prerequisites
+
+### Required Software
+- MySQL Server 8.0 or higher
+- MySQL Router
+- MySQL Shell
+- ProxySQL (optional, for advanced routing)
+
+### Base Knowledge
+- Basic MySQL administration
+- SQL querying
+- Basic networking concepts
+
+## Basic Setup
+
+### 1. Install MySQL Servers
+
+```bash
+# For Ubuntu/Debian
+sudo apt-get update
+sudo apt-get install mysql-server mysql-router mysql-shell
+
+# For CentOS/RHEL
+sudo yum install mysql-server mysql-router mysql-shell
+```
+
+### 2. Configure MySQL Instances
+
+Create configuration files for each shard:
+
+```ini
+# /etc/mysql/mysql.conf.d/shard1.cnf
+[mysqld]
+server-id=1
+port=3301
+datadir=/var/lib/mysql-shard1
+socket=/var/run/mysqld/mysqld-shard1.sock
+
+# /etc/mysql/mysql.conf.d/shard2.cnf
+[mysqld]
+server-id=2
+port=3302
+datadir=/var/lib/mysql-shard2
+socket=/var/run/mysqld/mysqld-shard2.sock
+```
+
+### 3. Initialize Shards
+
+```sql
+-- Create databases on each shard
+CREATE DATABASE shard1;
+CREATE DATABASE shard2;
+
+-- Create sample table structure
+CREATE TABLE users (
+    id BIGINT NOT NULL,
+    name VARCHAR(255),
+    email VARCHAR(255),
+    country_code VARCHAR(2),
+    created_at TIMESTAMP,
+    PRIMARY KEY (id)
+) ENGINE=InnoDB;
+```
+
+## Implementation Approaches
+
+### 1. Range-Based Sharding
+
+```php
+<?php
+// Shard manager class
+class ShardManager {
+    private $shards = [
+        ['host' => 'localhost', 'port' => 3301, 'range' => [1, 1000000]],
+        ['host' => 'localhost', 'port' => 3302, 'range' => [1000001, 2000000]]
+    ];
+
+    public function getShardForId($id) {
+        foreach ($this->shards as $shard) {
+            if ($id >= $shard['range'][0] && $id <= $shard['range'][1]) {
+                return $shard;
+            }
+        }
+        throw new Exception("No shard found for ID: " . $id);
+    }
+}
+```
+
+### 2. Hash-Based Sharding
+
+```php
+<?php
+class HashShardManager {
+    private $shardCount = 2;
+    
+    public function getShardForKey($key) {
+        $hash = crc32($key);
+        $shardId = abs($hash % $this->shardCount) + 1;
+        return [
+            'host' => 'localhost',
+            'port' => 3300 + $shardId
+        ];
+    }
+}
+```
+
+## Practical Examples
+
+### 1. User Data Sharding
+
+```sql
+-- Create lookup table in the main database
+CREATE TABLE shard_lookup (
+    user_id_range_start BIGINT,
+    user_id_range_end BIGINT,
+    shard_id INT,
+    shard_host VARCHAR(255),
+    shard_port INT,
+    PRIMARY KEY (user_id_range_start, user_id_range_end)
+);
+
+-- Insert shard mapping
+INSERT INTO shard_lookup VALUES 
+(1, 1000000, 1, 'localhost', 3301),
+(1000001, 2000000, 2, 'localhost', 3302);
+```
+
+### 2. Data Insert Example
+
+```php
+<?php
+class UserDataManager {
+    private $shardManager;
+    
+    public function __construct() {
+        $this->shardManager = new ShardManager();
+    }
+    
+    public function insertUser($userData) {
+        $shard = $this->shardManager->getShardForId($userData['id']);
+        
+        $conn = new mysqli(
+            $shard['host'],
+            'username',
+            'password',
+            'shard' . $shard['id'],
+            $shard['port']
+        );
+        
+        $stmt = $conn->prepare("
+            INSERT INTO users (id, name, email, country_code, created_at)
+            VALUES (?, ?, ?, ?, NOW())
+        ");
+        
+        $stmt->bind_param(
+            'isss',
+            $userData['id'],
+            $userData['name'],
+            $userData['email'],
+            $userData['country_code']
+        );
+        
+        return $stmt->execute();
+    }
+}
+```
+
+### 3. Data Retrieval Example
+
+```php
+<?php
+class UserDataRetriever {
+    private $shardManager;
+    
+    public function getUser($userId) {
+        $shard = $this->shardManager->getShardForId($userId);
+        
+        $conn = new mysqli(
+            $shard['host'],
+            'username',
+            'password',
+            'shard' . $shard['id'],
+            $shard['port']
+        );
+        
+        $stmt = $conn->prepare("
+            SELECT * FROM users WHERE id = ?
+        ");
+        
+        $stmt->bind_param('i', $userId);
+        $stmt->execute();
+        
+        return $stmt->get_result()->fetch_assoc();
+    }
+}
+```
+
+### 4. Cross-Shard Queries
+
+```php
+<?php
+class CrossShardQueryManager {
+    private $shards;
+    
+    public function __construct() {
+        $this->shards = [
+            ['host' => 'localhost', 'port' => 3301],
+            ['host' => 'localhost', 'port' => 3302]
+        ];
+    }
+    
+    public function getUsersByCountry($countryCode) {
+        $results = [];
+        
+        foreach ($this->shards as $shard) {
+            $conn = new mysqli(
+                $shard['host'],
+                'username',
+                'password',
+                'shard' . $shard['id'],
+                $shard['port']
+            );
+            
+            $stmt = $conn->prepare("
+                SELECT * FROM users 
+                WHERE country_code = ?
+            ");
+            
+            $stmt->bind_param('s', $countryCode);
+            $stmt->execute();
+            
+            $shardResults = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+            $results = array_merge($results, $shardResults);
+        }
+        
+        return $results;
+    }
+}
+```
+
+## Monitoring and Maintenance
+
+### 1. Setup Monitoring
+
+```sql
+-- Create monitoring table
+CREATE TABLE shard_status (
+    shard_id INT,
+    total_records BIGINT,
+    disk_usage BIGINT,
+    last_checked TIMESTAMP,
+    PRIMARY KEY (shard_id)
+);
+
+-- Create monitoring procedure
+DELIMITER //
+CREATE PROCEDURE update_shard_status(IN p_shard_id INT)
+BEGIN
+    INSERT INTO shard_status
+    SELECT 
+        p_shard_id,
+        (SELECT COUNT(*) FROM users),
+        (SELECT SUM(data_length + index_length) 
+         FROM information_schema.tables
+         WHERE table_schema = DATABASE()),
+        NOW()
+    ON DUPLICATE KEY UPDATE
+        total_records = VALUES(total_records),
+        disk_usage = VALUES(disk_usage),
+        last_checked = VALUES(last_checked);
+END //
+DELIMITER ;
+```
+
+### 2. Rebalancing Script
+
+```php
+<?php
+class ShardRebalancer {
+    private $shardManager;
+    
+    public function rebalanceShard($sourceShardId, $targetShardId, $recordCount) {
+        // Get records to move
+        $records = $this->getRecordsToMove($sourceShardId, $recordCount);
+        
+        // Move records
+        foreach ($records as $record) {
+            $this->moveRecord($record, $sourceShardId, $targetShardId);
+        }
+        
+        // Update shard mapping
+        $this->updateShardMapping($sourceShardId, $targetShardId);
+    }
+    
+    private function moveRecord($record, $sourceShardId, $targetShardId) {
+        // Implementation of record movement
+        // Include transaction handling
+        // Include error handling and rollback
+    }
+}
+```
+
+## Best Practices
+
+### 1. Shard Key Selection
+
+```sql
+-- Good shard key example - Using customer_id
+CREATE TABLE orders (
+    id BIGINT NOT NULL,
+    customer_id BIGINT NOT NULL,
+    order_date TIMESTAMP,
+    total_amount DECIMAL(10,2),
+    PRIMARY KEY (id),
+    KEY idx_customer_id (customer_id)
+);
+
+-- Bad shard key example - Using sequential order_id
+CREATE TABLE orders (
+    order_id BIGINT NOT NULL AUTO_INCREMENT,
+    customer_id BIGINT NOT NULL,
+    order_date TIMESTAMP,
+    total_amount DECIMAL(10,2),
+    PRIMARY KEY (order_id)
+);
+```
+
+### 2. Backup Configuration
+
+```bash
+#!/bin/bash
+# Backup script for sharded database
+
+for shard in {1..2}
+do
+    mysqldump -h localhost -P 330$shard -u backup_user -p \
+    --databases shard$shard \
+    --single-transaction \
+    --master-data=2 \
+    > backup_shard${shard}_$(date +%Y%m%d).sql
+done
+```
+
+### 3. Error Handling
+
+```php
+<?php
+class ShardOperationHandler {
+    public function executeShardOperation($callback) {
+        try {
+            // Start transaction
+            $this->startTransaction();
+            
+            // Execute the operation
+            $result = $callback();
+            
+            // Commit if successful
+            $this->commit();
+            
+            return $result;
+        } catch (Exception $e) {
+            // Rollback on error
+            $this->rollback();
+            
+            // Log the error
+            $this->logError($e);
+            
+            throw $e;
+        }
+    }
+}
+```
+
+### 4. Performance Optimization
+
+```sql
+-- Create appropriate indexes on shard key
+CREATE INDEX idx_user_id ON users(id);
+CREATE INDEX idx_country_code ON users(country_code);
+
+-- Optimize table settings for each shard
+SET GLOBAL innodb_buffer_pool_size = 4294967296; -- 4GB
+SET GLOBAL innodb_flush_log_at_trx_commit = 2;
+SET GLOBAL innodb_flush_method = O_DIRECT;
+```
+
+## Troubleshooting Common Issues
+
+### 1. Connection Issues
+```php
+<?php
+class ShardConnectionManager {
+    private $maxRetries = 3;
+    private $retryDelay = 1; // seconds
+    
+    public function connectToShard($shardConfig) {
+        $attempts = 0;
+        
+        while ($attempts < $this->maxRetries) {
+            try {
+                $conn = new mysqli(
+                    $shardConfig['host'],
+                    $shardConfig['username'],
+                    $shardConfig['password'],
+                    $shardConfig['database'],
+                    $shardConfig['port']
+                );
+                
+                if ($conn->connect_error) {
+                    throw new Exception($conn->connect_error);
+                }
+                
+                return $conn;
+            } catch (Exception $e) {
+                $attempts++;
+                if ($attempts >= $this->maxRetries) {
+                    throw $e;
+                }
+                sleep($this->retryDelay);
+            }
+        }
+    }
+}
+```
+
+### 2. Data Consistency Checker
+
+```php
+<?php
+class ShardConsistencyChecker {
+    public function checkConsistency() {
+        $inconsistencies = [];
+        
+        // Check for duplicate records across shards
+        $duplicates = $this->findDuplicates();
+        
+        // Check for orphaned records
+        $orphans = $this->findOrphans();
+        
+        // Check for data integrity
+        $integrityIssues = $this->checkDataIntegrity();
+        
+        return [
+            'duplicates' => $duplicates,
+            'orphans' => $orphans,
+            'integrity_issues' => $integrityIssues
+        ];
+    }
+}
+```
