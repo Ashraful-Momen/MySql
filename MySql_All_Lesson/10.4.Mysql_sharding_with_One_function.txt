@@ -1,0 +1,250 @@
+
+CREATE TABLE shards (
+    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+    table_name VARCHAR(255),
+    backup_table VARCHAR(255),
+    key_from BIGINT,
+    key_to BIGINT,
+    status ENUM('active', 'inactive') DEFAULT 'active',
+    last_failover TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+
+======================================================
+<?php
+
+namespace App\Services;
+
+use Illuminate\Support\Facades\DB;
+use Exception;
+
+class DynamicSharding
+{
+    // Configuration
+    private const MAX_SHARD_SIZE = 1000000; // 1M records per shard
+    private const SHARD_PREFIX = 'users_shard_';
+
+    /**
+     * Single function to handle all sharding operations
+     * 
+     * @param string $operation 'read' or 'write'
+     * @param array $data Data for write operations
+     * @param mixed $key Sharding key (user_id or country)
+     * @return mixed
+     */
+    public function handle($operation, $data = [], $key = null)
+    {
+        try {
+            // Get or create shard
+            $shard = $this->getActiveShard($key);
+            
+            // If primary shard fails, try backup
+            if (!$this->isShardHealthy($shard->table_name)) {
+                $shard = $this->switchToBackup($shard);
+            }
+
+            // Perform operation
+            switch ($operation) {
+                case 'write':
+                    $result = $this->writeData($shard, $data);
+                    $this->checkAndSplit($shard);
+                    return $result;
+
+                case 'read':
+                    return $this->readData($shard, $key);
+
+                default:
+                    throw new Exception("Invalid operation");
+            }
+        } catch (Exception $e) {
+            // Log error and try backup if available
+            \Log::error("Sharding error: " . $e->getMessage());
+            throw $e;
+        }
+    }
+
+    /**
+     * Get or create active shard
+     */
+    private function getActiveShard($key)
+    {
+        // Find existing shard
+        $shard = DB::table('shards')
+            ->where('key_from', '<=', $key)
+            ->where('key_to', '>=', $key)
+            ->where('status', 'active')
+            ->first();
+
+        if (!$shard) {
+            // Create new shard
+            return $this->createShard($key);
+        }
+
+        return $shard;
+    }
+
+    /**
+     * Create new shard
+     */
+    private function createShard($key)
+    {
+        DB::beginTransaction();
+        try {
+            // Get next shard ID
+            $shardId = DB::table('shards')->max('id') + 1;
+            $tableName = self::SHARD_PREFIX . $shardId;
+            $backupTable = $tableName . '_backup';
+
+            // Create primary table
+            DB::statement("CREATE TABLE IF NOT EXISTS {$tableName} (
+                id BIGINT AUTO_INCREMENT PRIMARY KEY,
+                user_id BIGINT,
+                name VARCHAR(255),
+                email VARCHAR(255),
+                country VARCHAR(2),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                KEY idx_user (user_id),
+                KEY idx_country (country)
+            )");
+
+            // Create backup table with same structure
+            DB::statement("CREATE TABLE IF NOT EXISTS {$backupTable} LIKE {$tableName}");
+
+            // Add shard mapping
+            $shardId = DB::table('shards')->insertGetId([
+                'table_name' => $tableName,
+                'backup_table' => $backupTable,
+                'key_from' => $key,
+                'key_to' => $key + self::MAX_SHARD_SIZE,
+                'status' => 'active',
+                'created_at' => now()
+            ]);
+
+            DB::commit();
+            return DB::table('shards')->find($shardId);
+        } catch (Exception $e) {
+            DB::rollBack();
+            throw $e;
+        }
+    }
+
+    /**
+     * Write data to shard
+     */
+    private function writeData($shard, $data)
+    {
+        // Write to primary
+        $result = DB::table($shard->table_name)->insertGetId($data);
+
+        // Replicate to backup
+        DB::table($shard->backup_table)->insert($data + ['id' => $result]);
+
+        return $result;
+    }
+
+    /**
+     * Read data from shard
+     */
+    private function readData($shard, $key)
+    {
+        return DB::table($shard->table_name)
+            ->where('user_id', $key)
+            ->orWhere('country', $key)
+            ->first();
+    }
+
+    /**
+     * Check shard health
+     */
+    private function isShardHealthy($tableName)
+    {
+        try {
+            DB::table($tableName)->select(DB::raw('1'))->limit(1)->get();
+            return true;
+        } catch (Exception $e) {
+            return false;
+        }
+    }
+
+    /**
+     * Switch to backup shard
+     */
+    private function switchToBackup($shard)
+    {
+        DB::table('shards')
+            ->where('id', $shard->id)
+            ->update([
+                'table_name' => $shard->backup_table,
+                'backup_table' => $shard->table_name,
+                'last_failover' => now()
+            ]);
+
+        return DB::table('shards')->find($shard->id);
+    }
+
+    /**
+     * Check size and split if needed
+     */
+    private function checkAndSplit($shard)
+    {
+        $count = DB::table($shard->table_name)->count();
+
+        if ($count >= self::MAX_SHARD_SIZE) {
+            $midPoint = $count / 2;
+            $newShard = $this->createShard($shard->key_from + $midPoint);
+
+            // Move data to new shard
+            DB::table($shard->table_name)
+                ->where('id', '>', $midPoint)
+                ->chunkById(1000, function($records) use ($newShard) {
+                    DB::table($newShard->table_name)->insert($records->toArray());
+                    DB::table($newShard->backup_table)->insert($records->toArray());
+                });
+
+            // Remove moved data
+            DB::table($shard->table_name)
+                ->where('id', '>', $midPoint)
+                ->delete();
+        }
+    }
+}
+
+// Usage Example:
+class UserController extends Controller 
+{
+    private $sharding;
+
+    public function __construct()
+    {
+        $this->sharding = new DynamicSharding();
+    }
+
+    public function store(Request $request)
+    {
+        $data = $request->validate([
+            'name' => 'required',
+            'email' => 'required|email',
+            'country' => 'required|size:2'
+        ]);
+
+        return $this->sharding->handle('write', $data, $data['country']);
+    }
+
+    public function show($id)
+    {
+        return $this->sharding->handle('read', [], $id);
+    }
+}
+===============================================
+$sharding = new DynamicSharding();
+
+// Write data
+$result = $sharding->handle('write', [
+    'name' => 'John Doe',
+    'email' => 'john@example.com',
+    'country' => 'US'
+], 'US');
+
+// Read data
+$user = $sharding->handle('read', [], 123);
