@@ -1,0 +1,130 @@
+<?php
+
+// app/Http/Controllers/Api/UserController.php
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Http\Requests\UserRequest;
+use App\Services\RedisSharding;
+use Illuminate\Http\Request;
+
+class UserController extends Controller
+{
+    private $sharding;
+
+    public function __construct(RedisSharding $sharding)
+    {
+        $this->sharding = $sharding;
+    }
+
+    public function store(UserRequest $request)
+    {
+        $requestId = $this->sharding->handle('write', 
+            $request->validated(), 
+            $request->input('country')
+        );
+
+        return response()->json([
+            'success' => true,
+            'request_id' => $requestId,
+            'message' => 'Data queued for processing'
+        ]);
+    }
+
+    public function show($id)
+    {
+        $data = $this->sharding->handle('read', [], $id);
+
+        if (!$data) {
+            return response()->json([
+                'success' => false,
+                'message' => 'User not found'
+            ], 404);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $data
+        ]);
+    }
+
+    public function status($requestId)
+    {
+        $status = $this->sharding->handle('status', [], $requestId);
+
+        return response()->json([
+            'success' => true,
+            'status' => $status
+        ]);
+    }
+}
+
+// app/Http/Requests/UserRequest.php
+namespace App\Http\Requests;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class UserRequest extends FormRequest
+{
+    public function authorize()
+    {
+        return true;
+    }
+
+    public function rules()
+    {
+        return [
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|max:255',
+            'country' => 'required|string|size:2',
+            'user_id' => 'required|integer'
+        ];
+    }
+}
+
+// routes/api.php
+use App\Http\Controllers\Api\UserController;
+
+Route::prefix('v1')->group(function () {
+    Route::post('/users', [UserController::class, 'store']);
+    Route::get('/users/{id}', [UserController::class, 'show']);
+    Route::get('/status/{requestId}', [UserController::class, 'status']);
+});
+
+// app/Models/User.php
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+
+class User extends Model
+{
+    protected $fillable = [
+        'user_id',
+        'name',
+        'email',
+        'country'
+    ];
+
+    public $timestamps = true;
+}
+
+// app/Providers/ShardingServiceProvider.php
+namespace App\Providers;
+
+use Illuminate\Support\ServiceProvider;
+use App\Services\RedisSharding;
+use App\Services\CacheService;
+
+class ShardingServiceProvider extends ServiceProvider
+{
+    public function register()
+    {
+        $this->app->singleton(CacheService::class, function ($app) {
+            return new CacheService();
+        });
+
+        $this->app->singleton(RedisSharding::class, function ($app) {
+            return new RedisSharding($app->make(CacheService::class));
+        });
+    }
+}
