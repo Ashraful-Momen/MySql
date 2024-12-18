@@ -85,7 +85,7 @@ If Shard Full (>1M records):
 ```
 
 =============================================================
-#sharding Implementation Code : 
+#sharding Implementation Code : Method 1=> 
 ----------------------------------
 <?php
 
@@ -370,6 +370,206 @@ class MonitorShards extends Command
     {
         $service = new ShardingService();
         $service->monitorShards();
+    }
+}
+=================================================================================
+#sharding Implementation Code : Method 2 => 
+----------------------------------
+<?php
+
+namespace App\Services;
+
+use Illuminate\Support\Facades\DB;
+use Exception;
+
+class SimpleSharding
+{
+    // Constants for configuration
+    private const MAX_SHARD_SIZE = 1000000;  // Maximum records per shard
+    private const SHARD_PREFIX = 'users_shard_';
+    private const CHUNK_SIZE = 1000;
+
+    /**
+     * Main function to handle all sharding operations
+     * 
+     * @param string $operation 'read' or 'write'
+     * @param array $data Data for operation (optional)
+     * @param string|int $identifier User ID or country code
+     * @return mixed
+     */
+    public function handleSharding($operation, $data = [], $identifier = null)
+    {
+        try {
+            // 1. Get or create the appropriate shard
+            $shardInfo = $this->getOrCreateShard($identifier);
+            $shardTable = $shardInfo['table_name'];
+
+            // 2. Perform the requested operation
+            switch ($operation) {
+                case 'write':
+                    // Insert data and check if splitting is needed
+                    $result = $this->writeToShard($shardTable, $data);
+                    $this->checkAndSplitShard($shardTable);
+                    return $result;
+
+                case 'read':
+                    // Read data from the appropriate shard
+                    return $this->readFromShard($shardTable, $identifier);
+
+                default:
+                    throw new Exception("Invalid operation");
+            }
+        } catch (Exception $e) {
+            // Log error and handle failover if needed
+            $this->handleFailover($shardInfo ?? null);
+            throw $e;
+        }
+    }
+
+    /**
+     * Get existing shard or create new one
+     */
+    private function getOrCreateShard($identifier)
+    {
+        // Try to find existing shard
+        $shard = DB::table('shard_map')
+            ->where(function($query) use ($identifier) {
+                $query->where('key_from', '<=', $identifier)
+                      ->where('key_to', '>=', $identifier);
+            })
+            ->where('is_active', true)
+            ->first();
+
+        // Create new shard if none exists
+        if (!$shard) {
+            DB::beginTransaction();
+            try {
+                // Get next shard ID
+                $shardId = DB::table('shard_map')->max('id') + 1;
+                $tableName = self::SHARD_PREFIX . $shardId;
+
+                // Create new shard table
+                DB::statement("CREATE TABLE IF NOT EXISTS {$tableName} (
+                    id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+                    name VARCHAR(255),
+                    email VARCHAR(255),
+                    country VARCHAR(2),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    KEY idx_country (country),
+                    KEY idx_created (created_at)
+                )");
+
+                // Insert shard mapping
+                $shard = DB::table('shard_map')->insertGetId([
+                    'key_from' => $identifier,
+                    'key_to' => $identifier + self::MAX_SHARD_SIZE,
+                    'table_name' => $tableName,
+                    'is_active' => true,
+                    'created_at' => now()
+                ]);
+
+                DB::commit();
+                return DB::table('shard_map')->find($shard);
+            } catch (Exception $e) {
+                DB::rollBack();
+                throw $e;
+            }
+        }
+
+        return $shard;
+    }
+
+    /**
+     * Write data to shard
+     */
+    private function writeToShard($shardTable, $data)
+    {
+        return DB::table($shardTable)->insertGetId($data);
+    }
+
+    /**
+     * Read data from shard
+     */
+    private function readFromShard($shardTable, $identifier)
+    {
+        return DB::table($shardTable)
+            ->where('id', $identifier)
+            ->orWhere('country', $identifier)
+            ->first();
+    }
+
+    /**
+     * Check shard size and split if needed
+     */
+    private function checkAndSplitShard($shardTable)
+    {
+        $count = DB::table($shardTable)->count();
+
+        if ($count >= self::MAX_SHARD_SIZE) {
+            // Get middle point
+            $midPoint = DB::table($shardTable)
+                ->orderBy('id')
+                ->offset($count / 2)
+                ->limit(1)
+                ->first();
+
+            // Create new shard and move data
+            $newShard = $this->getOrCreateShard($midPoint->id);
+            
+            DB::table($shardTable)
+                ->where('id', '>', $midPoint->id)
+                ->chunkById(self::CHUNK_SIZE, function($records) use ($newShard) {
+                    DB::table($newShard->table_name)->insert($records->toArray());
+                });
+
+            // Delete moved records from old shard
+            DB::table($shardTable)
+                ->where('id', '>', $midPoint->id)
+                ->delete();
+        }
+    }
+
+    /**
+     * Handle failover if needed
+     */
+    private function handleFailover($shardInfo)
+    {
+        if ($shardInfo) {
+            // Mark current shard as inactive
+            DB::table('shard_map')
+                ->where('id', $shardInfo->id)
+                ->update(['is_active' => false]);
+
+            // Create new shard and move data
+            $newShard = $this->getOrCreateShard($shardInfo->key_from);
+            
+            // Copy data to new shard
+            DB::table($shardInfo->table_name)
+                ->chunkById(self::CHUNK_SIZE, function($records) use ($newShard) {
+                    DB::table($newShard->table_name)->insert($records->toArray());
+                });
+        }
+    }
+}
+
+// Usage Example:
+class User extends Model
+{
+    private $sharding;
+
+    public function __construct()
+    {
+        $this->sharding = new SimpleSharding();
+    }
+
+    public function create($data)
+    {
+        return $this->sharding->handleSharding('write', $data, $data['country']);
+    }
+
+    public function find($id)
+    {
+        return $this->sharding->handleSharding('read', [], $id);
     }
 }
 
