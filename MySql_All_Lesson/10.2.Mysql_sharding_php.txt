@@ -1,0 +1,788 @@
+<?php
+namespace DatabaseSharding;
+
+/**
+ * Configuration class for database sharding
+ */
+class ShardConfig {
+    const SHARD_BY_COUNTRY = 'country';
+    const SHARD_BY_USER_ID = 'user_id';
+    
+    private $config = [
+        'shard_method' => self::SHARD_BY_COUNTRY,
+        'shard_count' => 3,
+        'min_shard_size' => 1000000, // 1 million records
+        'max_shard_size' => 5000000,  // 5 million records
+        'master_host' => 'localhost',
+        'master_user' => 'root',
+        'master_pass' => 'password',
+        'slave_hosts' => [
+            ['host' => 'slave1', 'user' => 'slave_user', 'pass' => 'slave_pass'],
+            ['host' => 'slave2', 'user' => 'slave_user', 'pass' => 'slave_pass']
+        ]
+    ];
+
+    public function getConfig() {
+        return $this->config;
+    }
+}
+
+/**
+ * Manages database connections and sharding logic
+ */
+class ShardManager {
+    private $config;
+    private $shardMap = [];
+    private $connections = [];
+    
+    public function __construct(ShardConfig $config) {
+        $this->config = $config->getConfig();
+        $this->initializeShardMap();
+    }
+    
+    /**
+     * Initialize shard mapping
+     */
+    private function initializeShardMap() {
+        // Create shard mapping table if not exists
+        $this->executeOnMaster("
+            CREATE TABLE IF NOT EXISTS shard_map (
+                shard_id INT PRIMARY KEY,
+                shard_key VARCHAR(50),
+                shard_range_start VARCHAR(50),
+                shard_range_end VARCHAR(50),
+                server_host VARCHAR(255),
+                is_active BOOLEAN DEFAULT 1,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ");
+    }
+    
+    /**
+     * Get or create shard for a given key
+     */
+    public function getShardForKey($key) {
+        $shardId = $this->calculateShardId($key);
+        
+        if (!isset($this->connections[$shardId])) {
+            $this->connections[$shardId] = $this->connectToShard($shardId);
+        }
+        
+        return $this->connections[$shardId];
+    }
+    
+    /**
+     * Calculate shard ID based on key
+     */
+    private function calculateShardId($key) {
+        if ($this->config['shard_method'] === ShardConfig::SHARD_BY_COUNTRY) {
+            return $this->getCountryBasedShardId($key);
+        } else {
+            return $this->getHashBasedShardId($key);
+        }
+    }
+    
+    /**
+     * Get shard ID based on country
+     */
+    private function getCountryBasedShardId($country) {
+        $stmt = $this->executeOnMaster("
+            SELECT shard_id 
+            FROM shard_map 
+            WHERE shard_key = ? 
+            AND is_active = 1
+        ", [$country]);
+        
+        $result = $stmt->fetch(PDO::FETCH_ASSOC);
+        
+        if (!$result) {
+            return $this->createNewShard($country);
+        }
+        
+        return $result['shard_id'];
+    }
+    
+    /**
+     * Get hash-based shard ID
+     */
+    private function getHashBasedShardId($userId) {
+        return crc32($userId) % $this->config['shard_count'];
+    }
+    
+    /**
+     * Create a new shard dynamically
+     */
+    private function createNewShard($shardKey) {
+        $newShardId = $this->getNextShardId();
+        
+        // Create new database for shard
+        $dbName = "shard_{$newShardId}";
+        $this->executeOnMaster("CREATE DATABASE IF NOT EXISTS {$dbName}");
+        
+        // Create tables in new shard
+        $this->initializeShardTables($dbName);
+        
+        // Update shard map
+        $this->executeOnMaster("
+            INSERT INTO shard_map (shard_id, shard_key, server_host) 
+            VALUES (?, ?, ?)
+        ", [$newShardId, $shardKey, $this->config['master_host']]);
+        
+        return $newShardId;
+    }
+    
+    /**
+     * Initialize tables in new shard
+     */
+    private function initializeShardTables($dbName) {
+        $conn = $this->connectToShard($dbName);
+        
+        // Create user table in shard
+        $conn->exec("
+            CREATE TABLE IF NOT EXISTS users (
+                id BIGINT PRIMARY KEY,
+                name VARCHAR(255),
+                email VARCHAR(255),
+                country VARCHAR(2),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ");
+        
+        // Add more table creation statements as needed
+    }
+    
+    /**
+     * Auto-scaling monitoring
+     */
+    public function monitorShardSize() {
+        foreach ($this->shardMap as $shardId => $shard) {
+            $size = $this->getShardSize($shardId);
+            
+            if ($size > $this->config['max_shard_size']) {
+                $this->splitShard($shardId);
+            }
+        }
+    }
+    
+    /**
+     * Split shard when it grows too large
+     */
+    private function splitShard($shardId) {
+        $newShardId = $this->getNextShardId();
+        $oldShard = $this->connectToShard($shardId);
+        
+        // Get middle point of data
+        $stmt = $oldShard->query("
+            SELECT shard_key 
+            FROM users 
+            ORDER BY id 
+            LIMIT 1 
+            OFFSET (SELECT COUNT(*)/2 FROM users)
+        ");
+        
+        $midPoint = $stmt->fetchColumn();
+        
+        // Create new shard
+        $this->createNewShard($newShardId);
+        
+        // Move half of data to new shard
+        $this->moveDataToNewShard($shardId, $newShardId, $midPoint);
+        
+        // Update shard map
+        $this->updateShardRanges($shardId, $newShardId, $midPoint);
+    }
+    
+    /**
+     * Master-Slave replication management
+     */
+    private function setupReplication($shardId) {
+        foreach ($this->config['slave_hosts'] as $slave) {
+            // Set up MySQL replication
+            $this->executeOnSlave($slave['host'], "
+                CHANGE MASTER TO
+                MASTER_HOST='{$this->config['master_host']}',
+                MASTER_USER='{$slave['user']}',
+                MASTER_PASSWORD='{$slave['pass']}',
+                MASTER_LOG_FILE='mysql-bin.000001',
+                MASTER_LOG_POS=0
+            ");
+            
+            // Start slave
+            $this->executeOnSlave($slave['host'], "START SLAVE");
+        }
+    }
+    
+    /**
+     * Failover handling
+     */
+    public function handleFailover($failedShardId) {
+        // Detect master failure
+        if (!$this->isMasterResponding($failedShardId)) {
+            // Promote slave to master
+            $newMaster = $this->selectNewMaster($failedShardId);
+            $this->promoteSlave($newMaster);
+            
+            // Update configuration
+            $this->updateMasterConfig($failedShardId, $newMaster);
+            
+            // Reconfigure remaining slaves
+            $this->reconfigureSlaves($failedShardId, $newMaster);
+        }
+    }
+    
+    /**
+     * Check master health
+     */
+    private function isMasterResponding($shardId) {
+        try {
+            $conn = $this->connectToShard($shardId);
+            $conn->query("SELECT 1");
+            return true;
+        } catch (PDOException $e) {
+            return false;
+        }
+    }
+    
+    /**
+     * Select new master from available slaves
+     */
+    private function selectNewMaster($shardId) {
+        foreach ($this->config['slave_hosts'] as $slave) {
+            if ($this->isSlaveHealthy($slave['host'])) {
+                return $slave;
+            }
+        }
+        throw new Exception("No healthy slaves available for failover");
+    }
+    
+    /**
+     * Promote slave to master
+     */
+    private function promoteSlave($slave) {
+        $this->executeOnSlave($slave['host'], "STOP SLAVE");
+        $this->executeOnSlave($slave['host'], "RESET MASTER");
+    }
+}
+
+/**
+ * Example usage
+ */
+class UserService {
+    private $shardManager;
+    
+    public function __construct() {
+        $config = new ShardConfig();
+        $this->shardManager = new ShardManager($config);
+    }
+    
+    public function createUser($userData) {
+        $shardKey = $userData['country']; // or user_id
+        $shard = $this->shardManager->getShardForKey($shardKey);
+        
+        return $shard->insert('users', $userData);
+    }
+    
+    public function findUser($userId, $country) {
+        $shardKey = $country; // or user_id
+        $shard = $this->shardManager->getShardForKey($shardKey);
+        
+        return $shard->query("
+            SELECT * FROM users WHERE id = ?
+        ", [$userId])->fetch();
+    }
+}
+
+// Monitoring script (to be run as a cron job)
+class ShardMonitor {
+    private $shardManager;
+    
+    public function __construct() {
+        $config = new ShardConfig();
+        $this->shardManager = new ShardManager($config);
+    }
+    
+    public function monitor() {
+        // Monitor shard sizes and trigger auto-scaling
+        $this->shardManager->monitorShardSize();
+        
+        // Check master-slave health
+        foreach ($this->shardManager->getShards() as $shardId) {
+            if (!$this->shardManager->isMasterResponding($shardId)) {
+                $this->shardManager->handleFailover($shardId);
+            }
+        }
+    }
+}
+
+===============================================================================================================
+# Dynamic Database Sharding Architecture
+
+## System Architecture
+```
++------------------------+
+|     Application        |
+|     (PHP Layer)        |
++------------------------+
+          |
+          v
++------------------------+
+|    Shard Manager       |
+|------------------------|
+| - Shard Routing        |
+| - Auto-scaling         |
+| - Failover Handling    |
+| - Replication Mgmt     |
++------------------------+
+          |
+    +-----+-----+
+    |     |     |
+    v     v     v
++------+ +------+ +------+
+|Shard1| |Shard2| |Shard3|
+|Master| |Master| |Master|
++------+ +------+ +------+
+  |  |     |  |     |  |
+  v  v     v  v     v  v
++--+ +--+ +--+ +--+ +--+ +--+
+|S1| |S2| |S1| |S2| |S1| |S2|
++--+ +--+ +--+ +--+ +--+ +--+
+Slaves    Slaves    Slaves
+```
+
+## Auto-Scaling Flow
+```
+1. Monitor Shard Size
++------------------+
+| Check Shard Size |
++------------------+
+         |
+         v
++------------------+     +------------------+
+| Size > Threshold?|---->| Create New Shard |
++------------------+     +------------------+
+         |                      |
+         v                      v
++------------------+     +------------------+
+| Continue Monitor|      | Migrate Data     |
++------------------+     +------------------+
+                               |
+                               v
+                        +------------------+
+                        | Update Shard Map |
+                        +------------------+
+```
+
+## Failover Process
+```
+      +----------------+
+      | Monitor Health |
+      +----------------+
+             |
+             v
+   +--------------------+
+   | Master Responding? |
+   +--------------------+
+      No |        | Yes
+         v        v
++----------------+ +-----------------+
+| Select New     | | Continue       |
+| Master (Slave) | | Normal Ops     |
++----------------+ +-----------------+
+         |
+         v
++------------------+
+| Promote Slave to |
+| Master           |
++------------------+
+         |
+         v
++------------------+
+| Reconfigure      |
+| Other Slaves     |
++------------------+
+```
+
+## Data Distribution (Country-Based)
+```
+Shard 1:
++---------+---------+
+| Country | Range   |
+|---------+---------|
+| US, CA  | A - M   |
++---------+---------+
+
+Shard 2:
++---------+---------+
+| Country | Range   |
+|---------+---------|
+| US, CA  | N - Z   |
++---------+---------+
+
+Shard 3:
++---------+---------+
+| Country | Range   |
+|---------+---------|
+| EU      | All     |
++---------+---------+
+```
+
+## Hash-Based Distribution
+```
+User ID ---> Hash Function ---> Shard Selection
+   |
+   v
++----------------+     +----------------+
+| CRC32(User ID) | --> | Modulo by     |
+|                |     | Shard Count    |
++----------------+     +----------------+
+                           |
+                           v
+                    +----------------+
+                    | Shard Number   |
+                    +----------------+
+```
+
+## Key Components
+
+1. Shard Manager
+```
++-------------------------+
+|      Shard Manager      |
+|-------------------------|
+| - Init Shard Map        |
+| - Calculate Shard ID    |
+| - Create New Shards     |
+| - Handle Connections    |
+| - Monitor Health        |
+| - Manage Replication    |
++-------------------------+
+```
+
+2. Configuration
+```
++-------------------------+
+|    Shard Config         |
+|-------------------------|
+| - Shard Method         |
+| - Shard Count          |
+| - Size Thresholds      |
+| - Master/Slave Config  |
+| - Connection Details   |
++-------------------------+
+```
+
+3. Monitoring System
+```
++-------------------------+
+|    Shard Monitor        |
+|-------------------------|
+| - Check Shard Sizes     |
+| - Monitor Health        |
+| - Trigger Auto-scaling  |
+| - Handle Failover       |
++-------------------------+
+```
+
+## Database Schema
+
+1. Shard Map Table
+```
++------------------+
+|    shard_map     |
+|------------------|
+| shard_id        |
+| shard_key       |
+| shard_range_start|
+| shard_range_end |
+| server_host     |
+| is_active       |
+| created_at      |
++------------------+
+
+2. Users Table (Per Shard)
++------------------+
+|      users       |
+|------------------|
+| id              |
+| name            |
+| email           |
+| country         |
+| created_at      |
++------------------+
+
+## Implementation Details
+
+### 1. Connection Management
+```
+Master Connection:
++-------------------+
+| - Primary Writes  |
+| - Shard Creation  |
+| - Schema Updates  |
++-------------------+
+        |
+        v
+Slave Connections:
++-------------------+
+| - Read Operations |
+| - Backup         |
+| - Failover Ready |
++-------------------+
+```
+
+### 2. Auto-Scaling Process
+```
+1. Size Monitoring
++----------------------+
+| Current Size: 4.5 MB |
+| Threshold:   5.0 MB  |
++----------------------+
+         |
+         v
+2. Trigger Split
++----------------------+
+| - Create New Shard   |
+| - Calculate Mid-Point|
+| - Move Data         |
++----------------------+
+         |
+         v
+3. Update Configuration
++----------------------+
+| - Update Shard Map   |
+| - Configure New Shard|
+| - Setup Replication  |
++----------------------+
+```
+
+### 3. Replication Flow
+```
+Write Operation:
++-------------+     +-------------+     +-------------+
+| Application |---->| Master     |---->| Binary Log  |
++-------------+     | Database   |     +-------------+
+                   +-------------+           |
+                                            v
+                   +-------------+     +-------------+
+                   | Slave      |<----| Relay Log   |
+                   | Database   |     +-------------+
+                   +-------------+
+```
+
+## Configuration Examples
+
+1. MySQL Master Configuration
+```ini
+[mysqld]
+server-id=1
+log-bin=mysql-bin
+binlog-format=ROW
+sync-binlog=1
+innodb_flush_log_at_trx_commit=1
+```
+
+2. MySQL Slave Configuration
+```ini
+[mysqld]
+server-id=2
+relay-log=relay-bin
+read_only=1
+```
+
+3. PHP Configuration (config.php)
+```php
+return [
+    'shard_methods' => [
+        'country' => [
+            'type' => 'range',
+            'ranges' => [
+                'US' => ['A-M', 'N-Z'],
+                'EU' => ['ALL']
+            ]
+        ],
+        'user_id' => [
+            'type' => 'hash',
+            'function' => 'crc32'
+        ]
+    ],
+    'scaling' => [
+        'min_size' => '1000000',
+        'max_size' => '5000000',
+        'split_threshold' => '4500000'
+    ],
+    'replication' => [
+        'master' => [
+            'host' => 'master-db',
+            'user' => 'repl_user',
+            'password' => '****'
+        ],
+        'slaves' => [
+            [
+                'host' => 'slave-1',
+                'user' => 'repl_user',
+                'password' => '****'
+            ],
+            [
+                'host' => 'slave-2',
+                'user' => 'repl_user',
+                'password' => '****'
+            ]
+        ]
+    ]
+];
+```
+
+===================================== Deployment and Managing Script ================================================
+#!/bin/bash
+
+# Setup script for initial deployment
+setup_sharding.sh
+----------------
+#!/bin/bash
+
+# Create necessary directories
+mkdir -p /var/lib/mysql-shards
+mkdir -p /var/log/mysql-shards
+
+# Setup Master
+setup_master() {
+    mysql -u root -p << EOF
+    CREATE USER 'repl_user'@'%' IDENTIFIED BY 'password';
+    GRANT REPLICATION SLAVE ON *.* TO 'repl_user'@'%';
+    FLUSH PRIVILEGES;
+    
+    CREATE DATABASE shard_management;
+    USE shard_management;
+    
+    CREATE TABLE shard_map (
+        shard_id INT PRIMARY KEY,
+        shard_key VARCHAR(50),
+        shard_range_start VARCHAR(50),
+        shard_range_end VARCHAR(50),
+        server_host VARCHAR(255),
+        is_active BOOLEAN DEFAULT 1,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+EOF
+}
+
+# Setup Slave
+setup_slave() {
+    local slave_id=$1
+    local master_host=$2
+    
+    mysql -u root -p << EOF
+    CHANGE MASTER TO
+        MASTER_HOST='$master_host',
+        MASTER_USER='repl_user',
+        MASTER_PASSWORD='password',
+        MASTER_LOG_FILE='mysql-bin.000001',
+        MASTER_LOG_POS=0;
+    START SLAVE;
+EOF
+}
+
+# Monitor script for health checking
+monitor_shards.sh
+----------------
+#!/bin/bash
+
+check_master_health() {
+    local master_host=$1
+    mysqladmin ping -h "$master_host" -u monitor_user -pmonitor_pass > /dev/null 2>&1
+    return $?
+}
+
+check_slave_health() {
+    local slave_host=$1
+    mysql -h "$slave_host" -u monitor_user -pmonitor_pass -e "SHOW SLAVE STATUS\G" | grep "Slave_IO_Running: Yes" > /dev/null \
+    && mysql -h "$slave_host" -u monitor_user -pmonitor_pass -e "SHOW SLAVE STATUS\G" | grep "Slave_SQL_Running: Yes" > /dev/null
+    return $?
+}
+
+# Backup script
+backup_shards.sh
+----------------
+#!/bin/bash
+
+backup_shard() {
+    local shard_id=$1
+    local backup_dir="/backup/shards/$shard_id"
+    local date_stamp=$(date +%Y%m%d_%H%M%S)
+    
+    # Create backup directory
+    mkdir -p "$backup_dir"
+    
+    # Perform backup using mysqldump
+    mysqldump --single-transaction \
+              --master-data=2 \
+              --triggers \
+              --routines \
+              -u backup_user \
+              -pbackup_pass \
+              "shard_${shard_id}" > "$backup_dir/shard_${shard_id}_${date_stamp}.sql"
+    
+    # Compress backup
+    gzip "$backup_dir/shard_${shard_id}_${date_stamp}.sql"
+    
+    # Clean old backups (keep last 7 days)
+    find "$backup_dir" -name "*.sql.gz" -mtime +7 -delete
+}
+
+# Maintenance script
+maintain_shards.sh
+----------------
+#!/bin/bash
+
+optimize_shard() {
+    local shard_id=$1
+    
+    mysql -u maint_user -pmaint_pass << EOF
+    USE shard_${shard_id};
+    ANALYZE TABLE users;
+    OPTIMIZE TABLE users;
+EOF
+}
+
+rebalance_shards() {
+    local source_shard=$1
+    local target_shard=$2
+    local boundary_value=$3
+    
+    mysql -u root -p << EOF
+    BEGIN;
+    
+    # Move data to new shard
+    INSERT INTO shard_${target_shard}.users 
+    SELECT * FROM shard_${source_shard}.users 
+    WHERE id > ${boundary_value};
+    
+    # Remove moved data from source
+    DELETE FROM shard_${source_shard}.users 
+    WHERE id > ${boundary_value};
+    
+    # Update shard map
+    UPDATE shard_management.shard_map 
+    SET shard_range_end = ${boundary_value} 
+    WHERE shard_id = ${source_shard};
+    
+    INSERT INTO shard_management.shard_map 
+    (shard_id, shard_range_start, shard_range_end) 
+    VALUES 
+    (${target_shard}, ${boundary_value} + 1, NULL);
+    
+    COMMIT;
+EOF
+}
+
+# Cron job setup
+setup_cron() {
+    # Add monitoring job (every 5 minutes)
+    echo "*/5 * * * * /usr/local/bin/monitor_shards.sh" >> /etc/crontab
+    
+    # Add backup job (daily at 1 AM)
+    echo "0 1 * * * /usr/local/bin/backup_shards.sh" >> /etc/crontab
+    
+    # Add maintenance job (weekly on Sunday at 2 AM)
+    echo "0 2 * * 0 /usr/local/bin/maintain_shards.sh" >> /etc/crontab
+}
