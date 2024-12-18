@@ -1,0 +1,3 @@
+In Laravel project , I have an Api for user registration (name, gender, phone, email ) endpoint '/user_reg' , use User Model and User_DB. 
+Another Api => '/show_balance' for check the balance , use Balance Model and Balance DB just show the balance according to user_id. Use radis for handle 1 Million request per second for each api endpoint  .
+Need Automatic failover management with DB replicas (each table need 2 replica if primary table fail). Use Dynamic Scale-up Horizontal  Sharding in Mysql (if each User_shard_table store 10k users according to Country).
