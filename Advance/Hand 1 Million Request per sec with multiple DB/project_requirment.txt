@@ -1,0 +1,25 @@
+1.Setup Redis and databases:
+--------------------------------
+# Redis configuration in .env
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+REDIS_PREFIX=app:
+
+# Run migrations
+php artisan migrate
+
+2. Register users:
+-------------------
+curl -X POST http://your-app/api/user_reg \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "John Doe",
+    "gender": "male",
+    "phone": "1234567890",
+    "email": "john@example.com",
+    "country": "US"
+  }'
+  
+3. Check balance:
+-------------------
+curl http://your-app/api/show_balance?user_id=123
