@@ -1,6 +1,9 @@
 #install mysql : -----------------------
 >>>mysql --version
 
+#enable the mysql : --------------------
+>>> sudo systemctl start mysql
+
 #mysql terminal open : -----------------
 >>> sudo mysql 
 
