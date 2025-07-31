@@ -182,4 +182,307 @@ Applying COALESCE():
 1. **Use `IFNULL()`**: If you need to handle one expression and replace `NULL` with a default value.
 2. **Use `COALESCE()`**: If you need to check multiple expressions for the first non-`NULL` value.
 
-Let me know if you'd like more examples or deeper insights!
+===================================== Fix the sql error : column not found =========================================
+
+
+ // Life And Health (Category 8)
+        if (in_array(8, $categoriesToInclude)) {
+            $lifeHealthQuery = DB::table("order_parents")
+                ->where("order_parents.category_id", "=", 8)
+                ->leftJoin('life_and_health_child_orders', 'order_parents.order_ref_id', '=', 'life_and_health_child_orders.order_parent_id')
+                ->leftJoin('life_and_healths', 'life_and_health_child_orders.product_id', '=', 'life_and_healths.id')
+                ->leftJoin('dealers', 'life_and_health_child_orders.sold_by', '=', 'dealers.user_id')
+                ->leftJoin('policy_providers', function ($join) {
+                    $join->on('life_and_healths.provider_name', '=', 'policy_providers.id');
+                })
+                ->leftJoin('hdc_card_packages', function ($join) {
+                    $join->on('order_parents.hospital_card_id', '=', 'hdc_card_packages.id')
+                        ->whereNotNull('order_parents.hospital_card_id');
+                })
+                ->leftJoin('tele_medicines', function ($join) {
+                    $join->on('order_parents.tele_medicine_id', '=', 'tele_medicines.id')
+                        ->whereNotNull('order_parents.tele_medicine_id');
+                })
+                ->join("categories", "order_parents.category_id", "=", "categories.id");
+
+            if ($provider) {
+                $lifeHealthQuery->where(function ($query) use ($provider) {
+                    $query->where('policy_providers.id', '=', $provider)
+                        ->orWhere('life_and_healths.provider_name', '=', $provider);
+                });
+            }
+
+            if ($paymentMethod) {
+                $lifeHealthQuery->where('order_parents.pgw_name', '=', $paymentMethod);
+            }
+            if ($parentDealer) {
+                $lifeHealthQuery->where('dealers.parent_id', '=', $parentDealer);
+            }
+
+            if ($childDealer) {
+                $lifeHealthQuery->where('dealers.id', '=', $childDealer);
+            }
+
+            $lifeHealthQuery->select([
+
+
+                // --------------------------------------------------------------------------------------------
+                #due payment
+
+                #Ashraful Momen : Show the due amount
+                // -----------------
+
+                // DB::raw("COALESCE(life_and_health_child_orders.due_payment, 0) as due_payment"),
+
+
+                // return 0 and handle execption col not fount , return life_and_health_child_orders.due_payment value if exist or return 0.
+                DB::raw("COALESCE(
+                        CASE
+                            WHEN EXISTS (
+                                SELECT 1 FROM information_schema.columns
+                                WHERE table_schema = DATABASE()
+                                AND table_name = 'life_and_health_child_orders'
+                                AND column_name = 'due_payment'
+                            )
+                            THEN COALESCE(life_and_health_child_orders.due_payment, 0)
+                            ELSE 0
+                        END, 0
+                    ) as due_amount"),
+
+                //---------------------------------------------------------------------------------------------
+
+
+                //__________________________________________________________________
+                #total_payment
+                // DB::raw("COALESCE(order_parents.total_payment, 0) as total_payment"), // don't delete this line .
+
+                // if total_payment is 0 return from order_parents.total_payment then check life_and_health_child_orders.due_payment then show 0
+                // Replace your due_amount query with this cascading logic:
+
+                DB::raw("
+                        CASE
+                            WHEN COALESCE(order_parents.total_payment, 0) > 0
+                            THEN COALESCE(order_parents.total_payment, 0)
+
+                            WHEN COALESCE(life_and_health_child_orders.total_payment, 0) > 0
+                            THEN COALESCE(life_and_health_child_orders.total_payment, 0)
+
+                            ELSE COALESCE(life_and_health_child_orders.due_payment, 0)
+                        END as total_payment
+                    "),
+                //--------------------------------------------------------------------
+
+
+                // =========================== 28-05-25 ==============================
+                //__________________________________________________________________
+                #
+                #policy statrt date
+                // DB::raw("COALESCE(life_and_health_child_orders.policy_start_date, 0) as policy_start_date"),
+
+                DB::raw("COALESCE(
+                                            CASE
+                                                WHEN EXISTS (
+                                                    SELECT 1 FROM information_schema.columns
+                                                    WHERE table_schema = DATABASE()
+                                                    AND table_name = 'life_and_health_child_orders'
+                                                    AND column_name = 'policy_start_date'
+                                                )
+                                                THEN CASE
+                                                    WHEN life_and_health_child_orders.policy_start_date IS NULL OR life_and_health_child_orders.policy_start_date = ''
+                                                    THEN '0'
+                                                    ELSE life_and_health_child_orders.policy_start_date
+                                                END
+                                                ELSE '0'
+                                            END, '0'
+                                        ) as policy_start_date"),
+                //--------------------------------------------------------------------
+
+                #policy end date
+
+                DB::raw("COALESCE(
+                                            CASE
+                                                WHEN EXISTS (
+                                                    SELECT 1 FROM information_schema.columns
+                                                    WHERE table_schema = DATABASE()
+                                                    AND table_name = 'life_and_health_child_orders'
+                                                    AND column_name = 'policy_end_date'
+                                                )
+                                                THEN CASE
+                                                    WHEN life_and_health_child_orders.policy_end_date IS NULL OR life_and_health_child_orders.policy_end_date = ''
+                                                    THEN '0'
+                                                    ELSE life_and_health_child_orders.policy_end_date
+                                                END
+                                                ELSE '0'
+                                            END, '0'
+                                        ) as policy_end_date"),
+                //--------------------------------------------------------------------
+
+                //__________________________________________________________________
+                #
+                #pkg Price : handle exception col not fount , return life_and_healths.price value if exist or return 0.
+
+                DB::raw("COALESCE(
+                                            CASE
+                                                WHEN EXISTS (
+                                                    SELECT 1 FROM information_schema.columns
+                                                    WHERE table_schema = DATABASE()
+                                                    AND table_name = 'life_and_healths'
+                                                    AND column_name = 'price'
+                                                )
+                                                THEN CASE
+                                                    WHEN life_and_healths.price IS NULL OR life_and_healths.price = ''
+                                                    THEN '0'
+                                                    ELSE life_and_healths.price
+                                                END
+                                                ELSE '0'
+                                            END, '0'
+                                        ) as pkg_price"),
+                //------------------------------------------------------------------
+
+
+                //--------------------------------------------------------------------
+                #provider price
+
+                DB::raw("COALESCE(
+                                            CASE
+                                                WHEN EXISTS (
+                                                    SELECT 1 FROM information_schema.columns
+                                                    WHERE table_schema = DATABASE()
+                                                    AND table_name = 'life_and_healths'
+                                                    AND column_name = 'provider_price'
+                                                )
+                                                THEN CASE
+                                                    WHEN life_and_healths.price IS NULL OR life_and_healths.provider_price = ''
+                                                    THEN '0'
+                                                    ELSE life_and_healths.provider_price
+                                                END
+                                                ELSE '0'
+                                            END, '0'
+                                        ) as provider_price"),
+                //--------------------------------------------------------------------
+
+                //--------------------------------------------------------------------
+                #comission
+
+                DB::raw("COALESCE(
+                                                CASE
+                                                    WHEN EXISTS (
+                                                        SELECT 1 FROM information_schema.columns
+                                                        WHERE table_schema = DATABASE()
+                                                        AND table_name = 'life_and_health_child_orders'
+                                                        AND column_name = 'parent_commission_amount'
+                                                    ) AND EXISTS (
+                                                        SELECT 1 FROM information_schema.columns
+                                                        WHERE table_schema = DATABASE()
+                                                        AND table_name = 'life_and_health_child_orders'
+                                                        AND column_name = 'child_commission_amount'
+                                                    )
+                                                    THEN CASE
+                                                        WHEN (life_and_health_child_orders.parent_commission_amount IS NULL OR life_and_health_child_orders.parent_commission_amount = '')
+                                                            AND (life_and_health_child_orders.child_commission_amount IS NULL OR life_and_health_child_orders.child_commission_amount = '')
+                                                        THEN 0
+                                                        ELSE COALESCE(life_and_health_child_orders.parent_commission_amount, 0) + COALESCE(life_and_health_child_orders.child_commission_amount, 0)
+                                                    END
+                                                    ELSE 0
+                                                END, 0
+                                            ) as comission"),
+
+
+                //--------------------------------------------------------------------
+                #Additional Service 1: HDC
+
+                DB::raw("COALESCE(
+                                                CASE
+                                                    WHEN EXISTS (
+                                                        SELECT 1 FROM information_schema.columns
+                                                        WHERE table_schema = DATABASE()
+                                                        AND table_name = 'hdc_card_packages'
+                                                        AND column_name = 'provider_price'
+                                                    )
+                                                    THEN CASE
+                                                        WHEN (hdc_card_packages.provider_price IS NULL OR hdc_card_packages.provider_price = '')
+
+                                                        THEN 0
+                                                        ELSE COALESCE(hdc_card_packages.provider_price, 0)
+                                                    END
+                                                    ELSE 0
+                                                END, 0
+                                            ) as additional_service_provider_price_1"),
+
+                //--------------------------------------------------------------------
+                #Additional Service 1: TeleMedicine
+                // DB::raw("COALESCE(hdc_card_packages.provider_price, 0) as additional_service_provider_price_2"),
+
+                DB::raw("COALESCE(
+                                                CASE
+                                                    WHEN EXISTS (
+                                                        SELECT 1 FROM information_schema.columns
+                                                        WHERE table_schema = DATABASE()
+                                                        AND table_name = 'tele_medicines'
+                                                        AND column_name = 'provider_price'
+                                                    )
+                                                    THEN CASE
+                                                        WHEN (tele_medicines.provider_price IS NULL OR tele_medicines.provider_price = '')
+
+                                                        THEN 0
+                                                        ELSE COALESCE(tele_medicines.provider_price, 0)
+                                                    END
+                                                    ELSE 0
+                                                END, 0
+                                            ) as additional_service_provider_price_2"),
+
+
+                //--------------------------------------------------------------------
+
+                DB::raw("COALESCE(life_and_health_child_orders.order_parent_id, 'Null') as id"),
+                DB::raw("COALESCE(life_and_health_child_orders.policy_id, 'Null') as policy_id"),
+                DB::raw("CAST(COALESCE(dealers.com_org_inst_name, 'Instasure') AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci as sold_by"),
+                DB::raw("CAST(COALESCE(policy_providers.company_name, life_and_healths.provider_name, 'Instasure') AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci as provider_name"),
+                DB::raw("CAST(life_and_health_child_orders.Pname AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci as package_name"),
+                DB::raw("CAST(COALESCE(order_parents.pgw_name, 'Instasure') AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci as payment_method"),
+                // DB::raw("COALESCE(life_and_health_child_orders.child_commission_amount, 0) as comission"),//
+                DB::raw("COALESCE(life_and_health_child_orders.insurance_provider_amount, 0) as provider_amount"),
+                'order_parents.created_at as order_date',
+                'order_parents.bill as total_amount', // Add total_amount column
+                DB::raw("CAST(life_and_health_child_orders.o_name AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci as customer_name"),
+                DB::raw("CAST(life_and_health_child_orders.o_phone AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci as customer_phone"),
+                DB::raw("CAST(categories.name AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_unicode_ci as category_name"),
+                DB::raw("COALESCE(order_parents.vat, 0) as vat"),
+                'order_parents.updated_at as due_date',
+            ]);
+
+
+
+            if ($startDate && $endDate) {
+                $lifeHealthQuery->whereBetween('order_parents.created_at', [$startDate, $endDate]);
+            }
+
+            // --------------------- for dd() debugging------------------------
+
+            // DEBUG: Add dd() here to check what's being returned
+            // $debugResults = $lifeHealthQuery->limit(5)->get(); // Limit to 5 records for debugging
+
+            // Let's check the structure and values
+            // dd("Life",[
+            //     'query_sql' => $lifeHealthQuery->toSql(),
+            //     'query_bindings' => $lifeHealthQuery->getBindings(),
+            //     'sample_results' => $debugResults,
+            //     'first_record' => $debugResults->first(),
+            //     'due_amount_values' => $debugResults->pluck('due_amount'),
+            //     'pkg_price_values' => $debugResults->pluck('pkg_price'),
+            //     'column_check_query' => DB::select("
+            //         SELECT column_name, data_type, column_default
+            //         FROM information_schema.columns
+            //         WHERE table_schema = DATABASE()
+            //         AND table_name = 'life_and_health_child_orders'
+            //         AND column_name LIKE '%due%'
+            //     ")
+            // ]);
+            // --------------------- for dd() debugging------------------------
+
+
+            $queries[] = $lifeHealthQuery;
+        }
+
+
+
