@@ -68,3 +68,13 @@ MariaDB [mysql]> show grants for 'newuser'@'localhost';
 
 #Delete User: --------------------------------------------
 >>> DROP USER 'newuser'@'localhost';
+
+================================== all database privileges =======================
+-- Grant all privileges on a specific database
+grant all privileges on database_name.* to 'ashraful'@'localhost';
+
+-- Or grant all privileges on all databases
+grant all privileges on *.* to 'ashraful'@'localhost';
+
+-- Don't forget to flush privileges
+flush privileges;
