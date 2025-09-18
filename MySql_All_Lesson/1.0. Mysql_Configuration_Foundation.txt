@@ -11,6 +11,10 @@
 #run terminal as root : ----------------
 >>> sudo mysql -u root -p
 
+#normal user login mysql : --------------
+
+>>> ashraful@instasure-dns-vm-06:~/gitlab_project/instasure-dockerized$ mysql -u laravel_user -p -h 127.0.0.1 -P 3307
+
 #check the mysql host : ----------------
 MariaDB [mysql]> SHOW VARIABLES LIKE 'hostname';
 +---------------+-------+
