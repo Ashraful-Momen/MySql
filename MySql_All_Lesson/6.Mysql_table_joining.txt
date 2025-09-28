@@ -156,6 +156,8 @@ ON A.ID < B.ID;
 
 A `CROSS JOIN` produces a Cartesian product, combining every row from one table with every row from another table.
 
+suppose 2 table A, B . Table A all element is connected with Table B every element . 
+
 #### **ASCII Image**
 
 ```
